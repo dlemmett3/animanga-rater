@@ -450,28 +450,24 @@ export default function App() {
 
   useEffect(() => {
     if (!isConfigured) { setView("unconfigured"); return; }
-    const saved = localStorage.getItem("animanga_session");
-    if (saved) {
-      try {
-        let sess = JSON.parse(saved);
-        // If token expires within 10 minutes, refresh immediately on load
-        const msUntilExpiry = (sess.expiresAt || 0) - Date.now();
-        if (sess.refreshToken && msUntilExpiry < 10 * 60 * 1000) {
-          const res = await refreshSession(sess.refreshToken);
-          if (res.access_token) {
-            sess = {
-              ...sess,
-              token: res.access_token,
-              refreshToken: res.refresh_token,
-              expiresAt: Date.now() + (res.expires_in || 3600) * 1000,
-            };
-            localStorage.setItem("animanga_session", JSON.stringify(sess));
+    (async () => {
+      const saved = localStorage.getItem("animanga_session");
+      if (saved) {
+        try {
+          let sess = JSON.parse(saved);
+          const msUntilExpiry = (sess.expiresAt || 0) - Date.now();
+          if (sess.refreshToken && msUntilExpiry < 10 * 60 * 1000) {
+            const res = await refreshSession(sess.refreshToken);
+            if (res.access_token) {
+              sess = { ...sess, token: res.access_token, refreshToken: res.refresh_token, expiresAt: Date.now() + (res.expires_in || 3600) * 1000 };
+              localStorage.setItem("animanga_session", JSON.stringify(sess));
+            }
           }
-        }
-        setSession(sess);
-        loadAll(sess).then(() => setView("main"));
-      } catch { setView("login"); }
-    } else { setView("login"); }
+          setSession(sess);
+          loadAll(sess).then(() => setView("main"));
+        } catch { setView("login"); }
+      } else { setView("login"); }
+    })();
   }, []);
 
   // Auto-refresh token 5 minutes before expiry
