@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // ─── CONFIG ────────────────────────────────────────────────────────────────────
 const CATEGORY_WEIGHTS = { Structure: 0.30, Character: 0.30, Writing: 0.25, Technical: 0.15 };
@@ -43,6 +43,177 @@ const STATUS_COLORS = {
   "Completed": "#34d399", "Ongoing": "#60a5fa", "Hiatus": "#f59e0b",
   "Dropped": "#f87171", "Plan to read/watch": "#94a3b8",
 };
+
+// ─── SCORING ANCHORS ──────────────────────────────────────────────────────────
+const ANCHORS = {
+  Structure: {
+    plot: [
+      { range: "18-20", desc: "Masterfully constructed — every arc serves the whole, thematic and narrative threads pay off completely with no meaningful waste" },
+      { range: "14-17", desc: "Strong overall structure with meaningful progression and only minor inconsistencies or underperforming arcs" },
+      { range: "10-13", desc: "Competent but uneven — some arcs land, others feel directionless or padded" },
+      { range: "6-9",   desc: "Significant structural problems, arcs that go nowhere, or a narrative that loses its thread" },
+      { range: "0-5",   desc: "No coherent plot construction, or one so poorly executed it actively damages the work" },
+    ],
+    climax: [
+      { range: "18-20", desc: "A peak moment that defines the medium — emotionally, thematically, and narratively irreplaceable, impossible to imagine the work without it" },
+      { range: "14-17", desc: "Exceptional peaks that deliver on buildup and linger long after — the work is defined by them" },
+      { range: "10-13", desc: "Solid climactic moments that land but don't transcend — satisfying without being unforgettable" },
+      { range: "6-9",   desc: "Peaks that underdeliver relative to their setup, or works where the best moments feel accidental rather than earned" },
+      { range: "0-5",   desc: "No meaningful peaks, or climaxes that actively disappoint" },
+    ],
+    pacing: [
+      { range: "18-20", desc: "Nearly flawless — every arc breathes at exactly the right speed, no filler, no rushing, tone maintained throughout" },
+      { range: "14-17", desc: "Consistently well-paced with minor stumbles — the overall rhythm serves the story" },
+      { range: "10-13", desc: "Uneven — stretches of excellent pacing undermined by bloat, filler, or rushed moments" },
+      { range: "6-9",   desc: "Persistent pacing issues that damage immersion — either chronically rushed or chronically bloated" },
+      { range: "0-5",   desc: "Pacing so poor it fundamentally breaks the experience" },
+    ],
+    conclusion: [
+      { range: "18-20", desc: "A perfect ending — thematically earned, narratively complete, emotionally resonant, nothing left unresolved that should have been" },
+      { range: "14-17", desc: "A strong conclusion that satisfies most threads even if minor elements feel unresolved" },
+      { range: "10-13", desc: "A conclusion that works but doesn't elevate — functional rather than meaningful" },
+      { range: "6-9",   desc: "A weak ending that undermines what came before — rushed, unearned, or thematically hollow" },
+      { range: "0-5",   desc: "An ending so poor it damages retrospective enjoyment of the entire work" },
+      { range: "N/A",   desc: "Unfinished or ongoing works — set applicability to 0" },
+    ],
+    intro: [
+      { range: "18-20", desc: "Immediately establishes tone, theme, and stakes while being compelling entirely on its own terms — sets a standard the work then meets" },
+      { range: "14-17", desc: "Hooks effectively and sets up the work well, leaves you wanting more" },
+      { range: "10-13", desc: "Functional — does the job without being memorable" },
+      { range: "6-9",   desc: "Slow or misrepresentative — undersells what follows or sets wrong expectations" },
+      { range: "0-5",   desc: "Actively repels or establishes expectations the work then fails to meet" },
+    ],
+  },
+  Character: {
+    protagonist: [
+      { range: "18-20", desc: "A protagonist whose arc is thematically inseparable from the work itself — their growth, contradictions, and resolution define what the story is about. Among the finest in the medium" },
+      { range: "14-17", desc: "Exceptional protagonist with a compelling arc, clear identity, and meaningful evolution — elevates every scene they're in" },
+      { range: "10-13", desc: "A solid protagonist who serves the story well but whose arc lacks the depth or consistency to be truly memorable" },
+      { range: "6-9",   desc: "A functional lead who gets the plot from A to B but whose inner life is shallow or inconsistently written" },
+      { range: "0-5",   desc: "A protagonist who actively drags the work down — either a narrative void or so poorly written they undermine what surrounds them" },
+    ],
+    antagonists: [
+      { range: "18-20", desc: "An antagonist whose ideology, presence, and arc are as compelling as the protagonist's — reframes the entire work through their existence" },
+      { range: "14-17", desc: "A genuinely threatening and well-realized antagonist with clear motivation and meaningful narrative weight" },
+      { range: "10-13", desc: "A solid antagonist who fulfills their role effectively without being particularly memorable or complex" },
+      { range: "6-9",   desc: "An antagonist who exists primarily as an obstacle — motivation is thin, presence is functional at best" },
+      { range: "0-5",   desc: "An antagonist so poorly realized they damage the stakes of the entire work" },
+    ],
+    dynamics: [
+      { range: "18-20", desc: "Relationships that carry the thematic weight of the entire work — interactions that recontextualize both characters and feel genuinely irreplaceable" },
+      { range: "14-17", desc: "Deeply compelling dynamics with real tension, chemistry, or emotional resonance that define memorable scenes" },
+      { range: "10-13", desc: "Solid relationships that work within the story without being particularly distinctive" },
+      { range: "6-9",   desc: "Character interactions that feel mechanical or underdeveloped — relationships that exist by necessity rather than design" },
+      { range: "0-5",   desc: "Dynamics so poorly written they feel actively false or damage the characters involved" },
+    ],
+    development: [
+      { range: "18-20", desc: "A character arc so complete and earned it feels inevitable in retrospect — every step of growth is justified by what came before, thematically and narratively" },
+      { range: "14-17", desc: "Meaningful, well-paced development that genuinely transforms the character in ways that matter to the work" },
+      { range: "10-13", desc: "Noticeable development that lands but lacks the depth or consistency to be truly resonant" },
+      { range: "6-9",   desc: "Surface-level or inconsistent development — change happens but feels unearned or quickly abandoned" },
+      { range: "0-5",   desc: "No meaningful development, or regression so poorly handled it damages the character" },
+    ],
+    sidecast: [
+      { range: "18-20", desc: "A side cast where even minor characters feel fully realized — collectively they expand the world, reinforce themes, and create a sense the story exists beyond its leads" },
+      { range: "14-17", desc: "A strong ensemble with several standout supporting characters who meaningfully contribute to the narrative" },
+      { range: "10-13", desc: "A functional side cast that serves the plot without being particularly memorable as individuals" },
+      { range: "6-9",   desc: "Thin supporting characters who exist primarily as plot devices or audience surrogates" },
+      { range: "0-5",   desc: "A side cast so underdeveloped it makes the world feel hollow" },
+    ],
+    deuteragonist: [
+      { range: "18-20", desc: "A second lead whose arc is as essential as the protagonist's — the work cannot be imagined without them, and their relationship with the lead is the emotional core" },
+      { range: "14-17", desc: "A deuteragonist with their own compelling arc and identity who meaningfully shares narrative weight with the protagonist" },
+      { range: "10-13", desc: "A solid secondary lead who enhances the work without carrying independent narrative weight" },
+      { range: "6-9",   desc: "A deuteragonist who feels subordinate to the point of being interchangeable with a strong side character" },
+      { range: "0-5",   desc: "A nominal deuteragonist with no meaningful arc or presence" },
+      { range: "N/A",   desc: "Works with no identifiable deuteragonist or a purely ensemble structure — adjust applicability accordingly" },
+    ],
+  },
+  Writing: {
+    themes: [
+      { range: "18-20", desc: "A thematic framework so deeply embedded that plot, character, and structure all exist in service of it — ideas that genuinely challenge or reframe how you think about the subject matter" },
+      { range: "14-17", desc: "Rich, well-developed themes that are consistently explored and add meaningful depth to the narrative" },
+      { range: "10-13", desc: "Clear thematic intent that surfaces in places but lacks the consistency or depth to be truly resonant" },
+      { range: "6-9",   desc: "Themes present on the surface but underdeveloped — ideas gestured at rather than genuinely interrogated" },
+      { range: "0-5",   desc: "No meaningful thematic substance, or themes so superficially handled they feel decorative" },
+    ],
+    emotion: [
+      { range: "18-20", desc: "Emotionally devastating in a way that feels completely earned — the work breaks you because it built something worth breaking. Lingers long after completion" },
+      { range: "14-17", desc: "Consistently and genuinely emotionally effective — makes you feel things that matter through craft rather than manipulation" },
+      { range: "10-13", desc: "Emotionally engaging in moments without sustaining that engagement throughout" },
+      { range: "6-9",   desc: "Attempts emotional impact that largely doesn't land — too manipulative, too understated, or too inconsistent" },
+      { range: "0-5",   desc: "Emotionally inert — generates no meaningful feeling despite opportunities to do so" },
+    ],
+    dialogue: [
+      { range: "18-20", desc: "Writing that sounds like no one else — dialogue that reveals character, advances theme, and is compelling purely as language. Monologues that reframe everything preceding them" },
+      { range: "14-17", desc: "Consistently sharp and purposeful writing that elevates scenes and feels true to each character's voice" },
+      { range: "10-13", desc: "Functional dialogue that serves the plot without being particularly distinctive or memorable" },
+      { range: "6-9",   desc: "Dialogue that frequently feels unnatural, expository, or interchangeable between characters" },
+      { range: "0-5",   desc: "Writing so poor it actively breaks immersion or misrepresents the characters delivering it" },
+    ],
+    cohesion: [
+      { range: "18-20", desc: "Every element — character, plot, theme, structure — feels deliberately interconnected. Revelations recontextualize everything that preceded them. The work rewards rereading" },
+      { range: "14-17", desc: "Strong cohesion with clear throughlines that pay off — the work feels authored rather than assembled" },
+      { range: "10-13", desc: "Generally coherent with some threads that don't fully connect or payoffs that feel unearned" },
+      { range: "6-9",   desc: "Significant cohesion failures — plot threads abandoned, tonal inconsistencies, or a work that feels like several different stories stitched together" },
+      { range: "0-5",   desc: "No meaningful cohesion — the work contradicts or undermines itself to a degree that damages the whole" },
+    ],
+    symbolism: [
+      { range: "18-20", desc: "Symbolism so deeply integrated it operates on multiple levels simultaneously — visual, narrative, and thematic. Rewards close reading and enriches every rewatch or reread" },
+      { range: "14-17", desc: "Deliberate and effective symbolic language that meaningfully enhances thematic depth" },
+      { range: "10-13", desc: "Some purposeful symbolism that adds texture without being central to the experience" },
+      { range: "6-9",   desc: "Symbolic elements that feel surface-level or inconsistently deployed — present but not meaningfully developed" },
+      { range: "0-5",   desc: "No meaningful symbolic language, or symbolism so heavy-handed it becomes parody" },
+    ],
+  },
+  Technical: {
+    visuals: [
+      { range: "18-20", desc: "A visual language so distinctive and masterfully executed it stands entirely apart from its contemporaries — art that functions as storytelling in itself, irreplaceable in the medium" },
+      { range: "14-17", desc: "Exceptional visual craft with a clear and consistent artistic identity that elevates every scene" },
+      { range: "10-13", desc: "Strong visuals with moments of genuine artistry that don't sustain that level consistently throughout" },
+      { range: "6-9",   desc: "Competent but unremarkable — visuals that serve the story without contributing meaningfully to it" },
+      { range: "0-5",   desc: "Visual execution so poor it actively undermines the work" },
+    ],
+    direction: [
+      { range: "18-20", desc: "Every panel or frame feels deliberately composed — camera work, pacing of cuts, and spatial storytelling operating at the highest level, making the work feel authored at every moment" },
+      { range: "14-17", desc: "Consistently purposeful direction with standout sequences that demonstrate genuine mastery of the medium's visual language" },
+      { range: "10-13", desc: "Solid directorial choices in key moments without that intentionality sustained throughout" },
+      { range: "6-9",   desc: "Functional framing that conveys information without meaningfully contributing to tone or theme" },
+      { range: "0-5",   desc: "Direction so poor it confuses, distances, or actively works against the material" },
+    ],
+    fights: [
+      { range: "18-20", desc: "Action sequences that are simultaneously spectacular and thematically loaded — fights that reveal character, advance narrative, and are choreographed at a level that defines the medium" },
+      { range: "14-17", desc: "Exceptional action with strong choreography and genuine stakes — sequences that are memorable long after the fact" },
+      { range: "10-13", desc: "Solid action that entertains and serves the plot without reaching the heights of the best in the medium" },
+      { range: "6-9",   desc: "Action that is functional but unremarkable — fights that exist without much choreographic or thematic purpose" },
+      { range: "0-5",   desc: "Action sequences so poorly executed they damage pacing or immersion" },
+    ],
+    chardesign: [
+      { range: "18-20", desc: "Designs so iconic and expressive they are inseparable from the characters themselves — silhouette, costume, and visual identity that communicate personality and theme at a glance" },
+      { range: "14-17", desc: "Consistently strong designs with clear visual identities that meaningfully distinguish characters from one another" },
+      { range: "10-13", desc: "Solid designs that function well without being particularly distinctive or memorable" },
+      { range: "6-9",   desc: "Generic or inconsistent designs that make characters difficult to distinguish or visually uninteresting" },
+      { range: "0-5",   desc: "Designs so poor they actively undermine character identity or world coherence" },
+    ],
+    worldbuild: [
+      { range: "18-20", desc: "A world so fully realized it feels like it exists independently of the story — history, geography, culture, and internal logic that reward exploration and make every corner of the narrative feel grounded" },
+      { range: "14-17", desc: "Rich and detailed worldbuilding that meaningfully shapes the plot and characters and creates a genuine sense of place" },
+      { range: "10-13", desc: "Solid worldbuilding that establishes the setting effectively without being particularly deep or distinctive" },
+      { range: "6-9",   desc: "Surface-level world construction that serves immediate plot needs without creating a convincing or explorable reality" },
+      { range: "0-5",   desc: "Worldbuilding so thin or inconsistent it undermines immersion and credibility" },
+    ],
+    music: [
+      { range: "18-20", desc: "A soundtrack so perfectly integrated it becomes inseparable from the work's most defining moments — compositions that elevate scenes beyond what image alone could achieve and function as standalone art" },
+      { range: "14-17", desc: "Consistently excellent music that meaningfully enhances tone, emotion, and atmosphere throughout" },
+      { range: "10-13", desc: "Strong musical moments that don't sustain that quality consistently — a good soundtrack with peaks and unremarkable stretches" },
+      { range: "6-9",   desc: "A functional score that fills space without meaningfully contributing to the work's emotional or thematic impact" },
+      { range: "0-5",   desc: "Music so poorly chosen or executed it actively damages the experience" },
+      { range: "N/A",   desc: "Manga-only entries — set applicability to 0" },
+    ],
+  },
+};
+
+
 
 // ─── SUPABASE ─────────────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://bocjszpvovustgetvira.supabase.co";
@@ -891,6 +1062,61 @@ function SubcatLeaderboard({ subcat, rows, lbMode, setLbMode, onBack, onEditInli
   );
 }
 
+
+// ─── TOOLTIP ──────────────────────────────────────────────────────────────────
+function AnchorTooltip({ cat, subkey, label }) {
+  const [visible, setVisible] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const ref = React.useRef();
+  const anchors = ANCHORS[cat]?.[subkey] || [];
+
+  const handleMouseEnter = (e) => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (rect) {
+      setPos({
+        top: rect.bottom + window.scrollY + 4,
+        left: Math.min(rect.left + window.scrollX, window.innerWidth - 340),
+      });
+    }
+    setVisible(true);
+  };
+
+  return (
+    <>
+      <span ref={ref}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setVisible(false)}
+        style={{ flex: 1, fontSize: 13, color: "#cbd5e1", cursor: "help",
+          borderBottom: "1px dashed #334155", display: "inline-block" }}>
+        {label}
+      </span>
+      {visible && anchors.length > 0 && (
+        <div style={{
+          position: "fixed",
+          top: pos.top, left: pos.left,
+          width: 320, background: "#0b1118",
+          border: "1px solid #1e2d3d", borderRadius: 8,
+          padding: "12px 14px", zIndex: 9999,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+          pointerEvents: "none",
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 8 }}>
+            {label.toUpperCase()} — SCORING ANCHORS
+          </div>
+          {anchors.map(a => (
+            <div key={a.range} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", width: 36, flexShrink: 0, paddingTop: 1 }}>
+                {a.range}
+              </span>
+              <span style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5 }}>{a.desc}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── RATING SHEET ─────────────────────────────────────────────────────────────
 function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSaveApplicability }) {
   const [scores, setScores]           = useState(data.scores || {});
@@ -1021,7 +1247,7 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
                 return (
                   <div key={s.key}>
                     <div style={S.subRow}>
-                      <span style={{ flex: 1, fontSize: 13, color: "#cbd5e1" }}>{s.label}</span>
+                      <AnchorTooltip cat={cat} subkey={s.key} label={s.label} />
                       <input type="number" min="0" max="20" step="0.5"
                         style={S.numInput} value={sc ?? ""} placeholder="—"
                         onChange={e => setScore(cat, s.key, e.target.value)} />
@@ -1190,4 +1416,3 @@ const S = {
   thCell: { padding: "8px 6px", background: "#0b1118", color: "#475569", fontWeight: 600, letterSpacing: 1, textAlign: "center", borderBottom: "2px solid #1e2d3d", borderRight: "1px solid #1a2535", whiteSpace: "nowrap" },
   tdCell: { padding: "6px", borderBottom: "1px solid #0f1a2a", borderRight: "1px solid #0f1a2a", textAlign: "center" },
 };
-
