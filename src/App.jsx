@@ -219,18 +219,22 @@ const ANCHORS = {
 const SUPABASE_URL = "https://bocjszpvovustgetvira.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_O_VGkUQ2fhs_9DpwABdVcw_GyG2T97F";
 
+// Global token getter/setter so sbFetch can update React state
+let _getToken = () => null;
+let _setToken = (token) => {};
+
 async function sbFetch(path, method = "GET", body = null, token = null, _retry = false) {
+  const activeToken = token || _getToken() || SUPABASE_ANON_KEY;
   const headers = {
     "Content-Type": "application/json",
     "apikey": SUPABASE_ANON_KEY,
-    "Authorization": `Bearer ${token || SUPABASE_ANON_KEY}`,
+    "Authorization": `Bearer ${activeToken}`,
     "Prefer": method === "POST" ? "return=representation" : "",
   };
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     method, headers, body: body ? JSON.stringify(body) : null,
   });
   if (res.status === 401 && !_retry) {
-    // Token expired mid-session — try to refresh and retry once
     try {
       const saved = localStorage.getItem("animanga_session");
       if (saved) {
@@ -238,8 +242,14 @@ async function sbFetch(path, method = "GET", body = null, token = null, _retry =
         if (sess.refreshToken) {
           const refreshRes = await refreshSession(sess.refreshToken);
           if (refreshRes.access_token) {
-            const newSess = { ...sess, token: refreshRes.access_token, refreshToken: refreshRes.refresh_token, expiresAt: Date.now() + (refreshRes.expires_in || 3600) * 1000 };
+            const newSess = {
+              ...sess,
+              token: refreshRes.access_token,
+              refreshToken: refreshRes.refresh_token,
+              expiresAt: Date.now() + (refreshRes.expires_in || 3600) * 1000,
+            };
             localStorage.setItem("animanga_session", JSON.stringify(newSess));
+            _setToken(refreshRes.access_token);
             return sbFetch(path, method, body, refreshRes.access_token, true);
           }
         }
@@ -291,7 +301,47 @@ async function updatePassword(token, newPassword) {
   return res.json();
 }
 async function upsertRating(token, userId, username, title, data) {
-  await sbFetch(`ratings?on_conflict=user_id,title`, "POST", { user_id: userId, username, title, data }, token);
+  const activeToken = token || _getToken() || SUPABASE_ANON_KEY;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/ratings?on_conflict=user_id,title`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${activeToken}`,
+      "Prefer": "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify({ user_id: userId, username, title, data }),
+  });
+  if (res.status === 401) {
+    // Refresh and retry once
+    try {
+      const saved = localStorage.getItem("animanga_session");
+      if (saved) {
+        const sess = JSON.parse(saved);
+        if (sess.refreshToken) {
+          const refreshRes = await refreshSession(sess.refreshToken);
+          if (refreshRes.access_token) {
+            const newSess = { ...sess, token: refreshRes.access_token, refreshToken: refreshRes.refresh_token, expiresAt: Date.now() + (refreshRes.expires_in || 3600) * 1000 };
+            localStorage.setItem("animanga_session", JSON.stringify(newSess));
+            _setToken(refreshRes.access_token);
+            const retry = await fetch(`${SUPABASE_URL}/rest/v1/ratings?on_conflict=user_id,title`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "apikey": SUPABASE_ANON_KEY,
+                "Authorization": `Bearer ${refreshRes.access_token}`,
+                "Prefer": "resolution=merge-duplicates,return=representation",
+              },
+              body: JSON.stringify({ user_id: userId, username, title, data }),
+            });
+            if (!retry.ok) throw new Error(await retry.text());
+            return;
+          }
+        }
+      }
+    } catch (e) { throw e; }
+  }
+  if (!res.ok) throw new Error(await res.text());
 }
 async function fetchAllRatings(token) { return await sbFetch("ratings?select=*", "GET", null, token) || []; }
 async function fetchTitles(token) { return await sbFetch("titles?select=*&order=created_at.asc", "GET", null, token) || []; }
@@ -299,7 +349,20 @@ async function addPending(token, title, suggestedBy) { await sbFetch("titles", "
 async function approveTitle(token, id) { await sbFetch(`titles?id=eq.${id}`, "PATCH", { approved: true }, token); }
 async function deleteTitle(token, id) { await sbFetch(`titles?id=eq.${id}`, "DELETE", null, token); }
 async function fetchApplicability(token) { return await sbFetch("applicability?select=*", "GET", null, token) || []; }
-async function upsertApplicability(token, title, data) { await sbFetch("applicability?on_conflict=title", "POST", { title, data }, token); }
+async function upsertApplicability(token, title, data) {
+  const activeToken = token || _getToken() || SUPABASE_ANON_KEY;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/applicability?on_conflict=title`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${activeToken}`,
+      "Prefer": "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify({ title, data }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
 async function fetchProfiles(token) { return await sbFetch("profiles?select=*", "GET", null, token) || []; }
 async function upsertProfile(token, userId, username, isAdmin) { await sbFetch("profiles?on_conflict=id", "POST", { id: userId, username, is_admin: isAdmin }, token); }
 async function fetchInviteCode(token) {
@@ -371,6 +434,19 @@ export default function App() {
 
   const showToast = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 2800); };
   const isConfigured = SUPABASE_URL !== "YOUR_SUPABASE_URL";
+
+  // Wire global token getter/setter so sbFetch can update React state on 401 refresh
+  useEffect(() => {
+    _getToken = () => session?.token || null;
+    _setToken = (newToken) => {
+      setSession(prev => {
+        if (!prev) return prev;
+        const updated = { ...prev, token: newToken };
+        localStorage.setItem("animanga_session", JSON.stringify(updated));
+        return updated;
+      });
+    };
+  }, [session]);
 
   useEffect(() => {
     if (!isConfigured) { setView("unconfigured"); return; }
