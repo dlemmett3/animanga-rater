@@ -1134,14 +1134,11 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
   const [subcatNotes, setSubcatNotes] = useState(data.subcatNotes || {});
   const [applic, setApplic]           = useState(applicability || {});
   const [dirty, setDirty]             = useState(false);
+  const [saving, setSaving]           = useState(false);
   const [applicDirty, setApplicDirty] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState({});
 
-  useEffect(() => {
-    setScores(data.scores || {}); setVersion(data.version || "");
-    setStatus(data.status || null); setNotes(data.notes || "");
-    setSubcatNotes(data.subcatNotes || {});
-  }, [data]);
+  // Only sync applicability from admin changes — never reset scores from data prop
   useEffect(() => { setApplic(applicability || {}); }, [applicability]);
 
   const setScore = (cat, key, val) => {
@@ -1179,9 +1176,18 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
               onClick={() => { onSaveApplicability(applic); setApplicDirty(false); }}>
               Save Applicability
             </button>}
-          <button style={{ ...S.primaryBtn, width: "auto", padding: "8px 18px", opacity: dirty ? 1 : 0.4 }}
-            onClick={() => { onSave({ scores, version, status, notes, subcatNotes }); setDirty(false); }}>
-            Save
+          <button style={{ ...S.primaryBtn, width: "auto", padding: "8px 18px", opacity: (dirty && !saving) ? 1 : 0.4 }}
+            disabled={!dirty || saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onSave({ scores, version, status, notes, subcatNotes });
+                setDirty(false);
+              } finally {
+                setSaving(false);
+              }
+            }}>
+            {saving ? "Saving..." : "Save"}
           </button>
         </div>
       </div>
