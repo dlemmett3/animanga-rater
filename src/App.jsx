@@ -1,12 +1,7 @@
 import { useState, useEffect } from "react";
 
 // ─── CONFIG ────────────────────────────────────────────────────────────────────
-const CATEGORY_WEIGHTS = {
-  Structure: 0.30,
-  Character: 0.30,
-  Writing:   0.25,
-  Technical: 0.15,
-};
+const CATEGORY_WEIGHTS = { Structure: 0.30, Character: 0.30, Writing: 0.25, Technical: 0.15 };
 
 const SUBCATEGORIES = {
   Structure: [
@@ -42,16 +37,13 @@ const SUBCATEGORIES = {
 };
 
 const CATEGORIES = Object.keys(SUBCATEGORIES);
-
-const DEFAULT_TITLES = [
-  "Chainsaw Man","Tokyo Ghoul","FMAB","Berserk","Attack on Titan",
-  "Vinland Saga","Hunter x Hunter","Bleach","Neon Genesis Evangelion",
-  "Jujutsu Kaisen","Naruto","One Piece","Fruits Basket","JJK Modulo",
-  "Death Note","Dr. Stone"
-];
+const COMPLETION_STATUSES = ["Completed","Ongoing","Hiatus","Dropped","Plan to read/watch"];
+const STATUS_COLORS = {
+  "Completed": "#34d399", "Ongoing": "#60a5fa", "Hiatus": "#f59e0b",
+  "Dropped": "#f87171", "Plan to read/watch": "#94a3b8",
+};
 
 // ─── SUPABASE ─────────────────────────────────────────────────────────────────
-// REPLACE THESE WITH YOUR OWN VALUES FROM SUPABASE
 const SUPABASE_URL = "https://bocjszpvovustgetvira.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_O_VGkUQ2fhs_9DpwABdVcw_GyG2T97F";
 
@@ -65,15 +57,11 @@ async function sbFetch(path, method = "GET", body = null, token = null) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     method, headers, body: body ? JSON.stringify(body) : null,
   });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Supabase error: ${err}`);
-  }
+  if (!res.ok) { const err = await res.text(); throw new Error(err); }
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
 
-// Auth helpers
 async function signUp(email, password) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
     method: "POST",
@@ -82,7 +70,6 @@ async function signUp(email, password) {
   });
   return res.json();
 }
-
 async function signIn(email, password) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: "POST",
@@ -91,74 +78,33 @@ async function signIn(email, password) {
   });
   return res.json();
 }
-
 async function signOut(token) {
   await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
     method: "POST",
     headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` },
   });
 }
+async function updatePassword(token, newPassword) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` },
+    body: JSON.stringify({ password: newPassword }),
+  });
+  return res.json();
+}
 
-// DB helpers - upsert ratings
 async function upsertRating(token, userId, username, title, data) {
-  await sbFetch(
-    `ratings?on_conflict=user_id,title`,
-    "POST",
-    { user_id: userId, username, title, data },
-    token
-  );
+  await sbFetch(`ratings?on_conflict=user_id,title`, "POST", { user_id: userId, username, title, data }, token);
 }
-
-async function fetchAllRatings(token) {
-  return await sbFetch("ratings?select=*", "GET", null, token) || [];
-}
-
-async function fetchTitles(token) {
-  const rows = await sbFetch("titles?select=*&order=created_at.asc", "GET", null, token) || [];
-  return rows;
-}
-
-async function addTitle(token, title) {
-  await sbFetch("titles?on_conflict=title", "POST", { title, approved: true }, token);
-}
-
-async function addPending(token, title, suggestedBy) {
-  await sbFetch("titles", "POST", { title, approved: false, suggested_by: suggestedBy }, token);
-}
-
-async function approveTitle(token, id) {
-  await sbFetch(`titles?id=eq.${id}`, "PATCH", { approved: true }, token);
-}
-
-async function deleteTitle(token, id) {
-  await sbFetch(`titles?id=eq.${id}`, "DELETE", null, token);
-}
-
-async function fetchApplicability(token) {
-  return await sbFetch("applicability?select=*", "GET", null, token) || [];
-}
-
-async function upsertApplicability(token, title, data) {
-  await sbFetch(
-    "applicability?on_conflict=title",
-    "POST",
-    { title, data },
-    token
-  );
-}
-
-async function fetchProfiles(token) {
-  return await sbFetch("profiles?select=*", "GET", null, token) || [];
-}
-
-async function upsertProfile(token, userId, username, isAdmin) {
-  await sbFetch(
-    "profiles?on_conflict=id",
-    "POST",
-    { id: userId, username, is_admin: isAdmin },
-    token
-  );
-}
+async function fetchAllRatings(token) { return await sbFetch("ratings?select=*", "GET", null, token) || []; }
+async function fetchTitles(token) { return await sbFetch("titles?select=*&order=created_at.asc", "GET", null, token) || []; }
+async function addPending(token, title, suggestedBy) { await sbFetch("titles", "POST", { title, approved: false, suggested_by: suggestedBy }, token); }
+async function approveTitle(token, id) { await sbFetch(`titles?id=eq.${id}`, "PATCH", { approved: true }, token); }
+async function deleteTitle(token, id) { await sbFetch(`titles?id=eq.${id}`, "DELETE", null, token); }
+async function fetchApplicability(token) { return await sbFetch("applicability?select=*", "GET", null, token) || []; }
+async function upsertApplicability(token, title, data) { await sbFetch("applicability?on_conflict=title", "POST", { title, data }, token); }
+async function fetchProfiles(token) { return await sbFetch("profiles?select=*", "GET", null, token) || []; }
+async function upsertProfile(token, userId, username, isAdmin) { await sbFetch("profiles?on_conflict=id", "POST", { id: userId, username, is_admin: isAdmin }, token); }
 
 // ─── MATH ─────────────────────────────────────────────────────────────────────
 function calcCategoryScore(cat, scores, applicability) {
@@ -168,33 +114,22 @@ function calcCategoryScore(cat, scores, applicability) {
     const app = applicability?.[cat]?.[s.key] ?? 1;
     const adjW = s.weight * app;
     const sc = scores?.[cat]?.[s.key];
-    if (sc !== undefined && sc !== null && sc !== "") {
-      wScoreSum += Number(sc) * adjW;
-      wSum += adjW;
-    }
+    if (sc !== undefined && sc !== null && sc !== "") { wScoreSum += Number(sc) * adjW; wSum += adjW; }
   }
   return wSum > 0 ? wScoreSum / wSum : null;
 }
-
 function calcFinalScore(scores, applicability) {
   let wSum = 0, wScoreSum = 0;
   for (const cat of CATEGORIES) {
     const cs = calcCategoryScore(cat, scores, applicability);
-    if (cs !== null) {
-      const w = CATEGORY_WEIGHTS[cat];
-      wScoreSum += cs * w;
-      wSum += w;
-    }
+    if (cs !== null) { const w = CATEGORY_WEIGHTS[cat]; wScoreSum += cs * w; wSum += w; }
   }
   return wSum > 0 ? wScoreSum / wSum : null;
 }
-
 function scoreColor(s) {
   if (s === null || s === undefined) return "#94a3b8";
-  if (s >= 16) return "#f59e0b";
-  if (s >= 13) return "#60a5fa";
-  if (s >= 10) return "#34d399";
-  if (s >= 7)  return "#fb923c";
+  if (s >= 16) return "#f59e0b"; if (s >= 13) return "#60a5fa";
+  if (s >= 10) return "#34d399"; if (s >= 7) return "#fb923c";
   return "#f87171";
 }
 
@@ -204,18 +139,18 @@ const fontStyle = `
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: #1e2533; }
   ::-webkit-scrollbar-thumb { background: #3a4560; border-radius: 3px; }
+  textarea { resize: vertical; }
 `;
-
 const F = "'Inter', system-ui, sans-serif";
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [view, setView]           = useState("loading");
-  const [session, setSession]     = useState(null); // { token, userId, username, isAdmin }
+  const [session, setSession]     = useState(null);
   const [titles, setTitles]       = useState([]);
   const [pending, setPending]     = useState([]);
-  const [allRatings, setAllRatings] = useState([]); // raw rows from DB
-  const [applicability, setApplicability] = useState({}); // { title: { cat: { key: val } } }
+  const [allRatings, setAllRatings] = useState([]);
+  const [applicability, setApplicability] = useState({});
   const [profiles, setProfiles]   = useState([]);
   const [activeTitle, setActiveTitle] = useState(null);
   const [activeSubcat, setActiveSubcat] = useState(null);
@@ -224,17 +159,12 @@ export default function App() {
   const [toast, setToast]         = useState(null);
   const [loginForm, setLoginForm] = useState({ email: "", password: "", username: "", isNew: false });
   const [suggestForm, setSuggestForm] = useState({ title: "" });
+  const [showPwChange, setShowPwChange] = useState(false);
   const [loading, setLoading]     = useState(false);
 
-  const showToast = (msg, type = "ok") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 2800);
-  };
-
-  // ── Check if Supabase is configured ─────────────────────────────────────────
+  const showToast = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 2800); };
   const isConfigured = SUPABASE_URL !== "YOUR_SUPABASE_URL";
 
-  // ── Bootstrap ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isConfigured) { setView("unconfigured"); return; }
     const saved = localStorage.getItem("animanga_session");
@@ -244,18 +174,14 @@ export default function App() {
         setSession(sess);
         loadAll(sess).then(() => setView("main"));
       } catch { setView("login"); }
-    } else {
-      setView("login");
-    }
+    } else { setView("login"); }
   }, []);
 
   const loadAll = async (sess) => {
     try {
       const [rawTitles, rawRatings, rawApplic, rawProfiles] = await Promise.all([
-        fetchTitles(sess.token),
-        fetchAllRatings(sess.token),
-        fetchApplicability(sess.token),
-        fetchProfiles(sess.token),
+        fetchTitles(sess.token), fetchAllRatings(sess.token),
+        fetchApplicability(sess.token), fetchProfiles(sess.token),
       ]);
       setTitles(rawTitles.filter(t => t.approved).map(t => ({ id: t.id, title: t.title })));
       setPending(rawTitles.filter(t => !t.approved));
@@ -264,13 +190,9 @@ export default function App() {
       for (const row of rawApplic) appMap[row.title] = row.data;
       setApplicability(appMap);
       setProfiles(rawProfiles);
-    } catch (e) {
-      console.error(e);
-      showToast("Failed to load data", "err");
-    }
+    } catch (e) { showToast("Failed to load data", "err"); }
   };
 
-  // ── Auth ────────────────────────────────────────────────────────────────────
   const handleLogin = async () => {
     const { email, password, username, isNew } = loginForm;
     if (!email.trim() || !password.trim()) return showToast("Fill in all fields", "err");
@@ -280,41 +202,20 @@ export default function App() {
       if (isNew) {
         const res = await signUp(email, password);
         if (res.error) return showToast(res.error.message || "Signup failed", "err");
-        const sess = {
-          token: res.access_token,
-          userId: res.user.id,
-          username: username.trim(),
-          isAdmin: false,
-        };
+        const sess = { token: res.access_token, userId: res.user.id, username: username.trim(), isAdmin: false };
         await upsertProfile(sess.token, sess.userId, sess.username, false);
         localStorage.setItem("animanga_session", JSON.stringify(sess));
-        setSession(sess);
-        await loadAll(sess);
-        setView("main");
-        showToast(`Welcome, ${sess.username}!`);
+        setSession(sess); await loadAll(sess); setView("main"); showToast(`Welcome, ${sess.username}!`);
       } else {
         const res = await signIn(email, password);
         if (res.error) return showToast(res.error.message || "Login failed", "err");
-        // Get profile
         const profileRows = await sbFetch(`profiles?id=eq.${res.user.id}&select=*`, "GET", null, res.access_token);
         const profile = profileRows?.[0];
-        const sess = {
-          token: res.access_token,
-          userId: res.user.id,
-          username: profile?.username || email.split("@")[0],
-          isAdmin: profile?.is_admin || false,
-        };
+        const sess = { token: res.access_token, userId: res.user.id, username: profile?.username || email.split("@")[0], isAdmin: profile?.is_admin || false };
         localStorage.setItem("animanga_session", JSON.stringify(sess));
-        setSession(sess);
-        await loadAll(sess);
-        setView("main");
-        showToast(`Welcome back, ${sess.username}!`);
+        setSession(sess); await loadAll(sess); setView("main"); showToast(`Welcome back, ${sess.username}!`);
       }
-    } catch (e) {
-      showToast("Something went wrong", "err");
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { showToast("Something went wrong", "err"); } finally { setLoading(false); }
   };
 
   const handleLogout = async () => {
@@ -323,77 +224,62 @@ export default function App() {
     setSession(null); setView("login");
   };
 
-  // ── Save rating ─────────────────────────────────────────────────────────────
+  const handlePasswordChange = async (newPw) => {
+    try {
+      const res = await updatePassword(session.token, newPw);
+      if (res.error) return showToast(res.error.message || "Failed", "err");
+      showToast("Password updated"); setShowPwChange(false);
+    } catch { showToast("Failed", "err"); }
+  };
+
   const saveRating = async (title, data) => {
     try {
       await upsertRating(session.token, session.userId, session.username, title, data);
-      // Update local state
       setAllRatings(prev => {
         const filtered = prev.filter(r => !(r.user_id === session.userId && r.title === title));
         return [...filtered, { user_id: session.userId, username: session.username, title, data }];
       });
       showToast("Saved");
-    } catch (e) { showToast("Save failed", "err"); }
+    } catch { showToast("Save failed", "err"); }
   };
 
-  // ── Applicability ────────────────────────────────────────────────────────────
   const saveApplicability = async (title, data) => {
     try {
       await upsertApplicability(session.token, title, data);
       setApplicability(prev => ({ ...prev, [title]: data }));
       showToast("Applicability saved");
-    } catch (e) { showToast("Save failed", "err"); }
+    } catch { showToast("Save failed", "err"); }
   };
 
-  // ── Titles ───────────────────────────────────────────────────────────────────
   const submitSuggestion = async () => {
     if (!suggestForm.title.trim()) return showToast("Enter a title", "err");
     try {
       await addPending(session.token, suggestForm.title.trim(), session.username);
-      await loadAll(session);
-      setSuggestForm({ title: "" });
-      showToast("Suggestion submitted");
-    } catch (e) { showToast("Failed", "err"); }
+      await loadAll(session); setSuggestForm({ title: "" }); showToast("Suggestion submitted");
+    } catch { showToast("Failed", "err"); }
   };
 
   const approveSuggestion = async (item) => {
-    try {
-      await approveTitle(session.token, item.id);
-      await loadAll(session);
-      showToast(`"${item.title}" added`);
-    } catch (e) { showToast("Failed", "err"); }
+    try { await approveTitle(session.token, item.id); await loadAll(session); showToast(`"${item.title}" added`); }
+    catch { showToast("Failed", "err"); }
   };
 
   const rejectSuggestion = async (item) => {
-    try {
-      await deleteTitle(session.token, item.id);
-      await loadAll(session);
-      showToast("Rejected");
-    } catch (e) { showToast("Failed", "err"); }
+    try { await deleteTitle(session.token, item.id); await loadAll(session); showToast("Rejected"); }
+    catch { showToast("Failed", "err"); }
   };
 
-  // ── Export ───────────────────────────────────────────────────────────────────
   const handleExport = () => {
     const myRatings = allRatings.filter(r => r.user_id === session.userId);
-    const exportData = {
-      exportedAt: new Date().toISOString(),
-      username: session.username,
-      titles: titles.map(t => t.title),
-      applicability,
-      ratings: {},
-    };
+    const exportData = { exportedAt: new Date().toISOString(), username: session.username, titles: titles.map(t => t.title), applicability, ratings: {} };
     for (const r of myRatings) exportData.ratings[r.title] = r.data;
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
+    const a = document.createElement("a"); a.href = url;
     a.download = `animanga_ratings_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast("Downloaded");
+    a.click(); URL.revokeObjectURL(url); showToast("Downloaded");
   };
 
-  // ── Leaderboard helpers ──────────────────────────────────────────────────────
   const myRatingFor = (title) => allRatings.find(r => r.user_id === session?.userId && r.title === title);
 
   const getLeaderboard = () => titles.map(({ title }) => {
@@ -403,11 +289,11 @@ export default function App() {
       const sc = calcFinalScore(r.data?.scores, titleApp);
       return sc !== null ? { user: r.username, score: sc } : null;
     }).filter(Boolean);
-    const combined = userScores.length
-      ? userScores.reduce((s, x) => s + x.score, 0) / userScores.length : null;
+    const combined = userScores.length ? userScores.reduce((s, x) => s + x.score, 0) / userScores.length : null;
     const myData = myRatingFor(title);
     const myScore = myData ? calcFinalScore(myData.data?.scores, titleApp) : null;
-    return { title, combined, myScore, userScores, ratedBy: userScores.length };
+    const myStatus = myData?.data?.status || null;
+    return { title, combined, myScore, myStatus, userScores, ratedBy: userScores.length };
   }).sort((a, b) => {
     const sa = lbMode === "combined" ? a.combined : a.myScore;
     const sb = lbMode === "combined" ? b.combined : b.myScore;
@@ -424,15 +310,10 @@ export default function App() {
       const sc = r.data?.scores?.[cat]?.[subkey];
       return (sc !== undefined && sc !== null) ? { user: r.username, score: Number(sc) } : null;
     }).filter(Boolean);
-    const combined = userScores.length
-      ? userScores.reduce((s, x) => s + x.score, 0) / userScores.length : null;
+    const combined = userScores.length ? userScores.reduce((s, x) => s + x.score, 0) / userScores.length : null;
     const myData = myRatingFor(title);
     const myScore = myData?.data?.scores?.[cat]?.[subkey];
-    return {
-      title, combined,
-      myScore: myScore !== undefined ? Number(myScore) : null,
-      userScores, app, ratedBy: userScores.length
-    };
+    return { title, combined, myScore: myScore !== undefined ? Number(myScore) : null, userScores, app, ratedBy: userScores.length };
   }).sort((a, b) => {
     const sa = lbMode === "combined" ? a.combined : a.myScore;
     const sb = lbMode === "combined" ? b.combined : b.myScore;
@@ -443,55 +324,36 @@ export default function App() {
 
   const updateInlineScore = async (title, cat, subkey, val) => {
     const existing = myRatingFor(title);
-    const currentData = existing?.data || { scores: {}, version: "" };
-    const newScores = {
-      ...currentData.scores,
-      [cat]: { ...(currentData.scores[cat] || {}), [subkey]: val === "" ? undefined : Number(val) }
-    };
+    const currentData = existing?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} };
+    const newScores = { ...currentData.scores, [cat]: { ...(currentData.scores[cat] || {}), [subkey]: val === "" ? undefined : Number(val) } };
     await saveRating(title, { ...currentData, scores: newScores });
   };
 
-  // ── RENDER ───────────────────────────────────────────────────────────────────
   if (view === "loading") return <div style={S.center}><style>{fontStyle}</style><Spinner /></div>;
-
   if (view === "unconfigured") return (
-    <div style={S.center}>
-      <style>{fontStyle}</style>
+    <div style={S.center}><style>{fontStyle}</style>
       <div style={{ ...S.loginCard, textAlign: "center" }}>
-        <div style={{ fontSize: 40, marginBottom: 16 }}>⚙️</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#f1f5f9", marginBottom: 12 }}>Not Yet Configured</div>
-        <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.6 }}>
-          Replace <code style={{ background: "#0b1118", padding: "2px 6px", borderRadius: 4, color: "#60a5fa" }}>YOUR_SUPABASE_URL</code> and <code style={{ background: "#0b1118", padding: "2px 6px", borderRadius: 4, color: "#60a5fa" }}>YOUR_SUPABASE_ANON_KEY</code> at the top of the file with your Supabase project credentials.
-        </div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#f1f5f9", marginBottom: 12 }}>Not Configured</div>
+        <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.6 }}>Replace SUPABASE_URL and SUPABASE_ANON_KEY at the top of the file.</div>
       </div>
     </div>
   );
-
-  if (view === "login") return (
-    <LoginScreen form={loginForm} setForm={setLoginForm} onSubmit={handleLogin} loading={loading} />
-  );
-
+  if (view === "login") return <LoginScreen form={loginForm} setForm={setLoginForm} onSubmit={handleLogin} loading={loading} />;
   if (view === "main" && activeTitle) return (
-    <RatingSheet
-      title={activeTitle}
-      data={myRatingFor(activeTitle)?.data || { scores: {}, version: "" }}
+    <RatingSheet title={activeTitle}
+      data={myRatingFor(activeTitle)?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} }}
       applicability={applicability[activeTitle] || {}}
       onSave={(d) => saveRating(activeTitle, d)}
       onBack={() => setActiveTitle(null)}
       isAdmin={session?.isAdmin}
-      onSaveApplicability={(a) => saveApplicability(activeTitle, a)}
-    />
+      onSaveApplicability={(a) => saveApplicability(activeTitle, a)} />
   );
-
   if (view === "main" && activeSubcat) return (
-    <SubcatLeaderboard
-      subcat={activeSubcat}
+    <SubcatLeaderboard subcat={activeSubcat}
       rows={getSubcatLeaderboard(activeSubcat.cat, activeSubcat.key)}
       lbMode={lbMode} setLbMode={setLbMode}
       onBack={() => setActiveSubcat(null)}
-      onEditInline={(title, val) => updateInlineScore(title, activeSubcat.cat, activeSubcat.key, val)}
-      myUserId={session?.userId}
-    />
+      onEditInline={(title, val) => updateInlineScore(title, activeSubcat.cat, activeSubcat.key, val)} />
   );
 
   const lbData = getLeaderboard();
@@ -500,12 +362,10 @@ export default function App() {
     <div style={S.app}>
       <style>{fontStyle}</style>
       {toast && <Toast msg={toast.msg} type={toast.type} />}
+      {showPwChange && <PasswordChangeModal onSave={handlePasswordChange} onClose={() => setShowPwChange(false)} />}
 
       <div style={S.header}>
-        <div style={S.headerLogo}>
-          <span style={S.logoA}>ANIMANGA</span>
-          <span style={S.logoB}>RATER</span>
-        </div>
+        <div style={S.headerLogo}><span style={S.logoA}>ANIMANGA</span><span style={S.logoB}>RATER</span></div>
         <div style={S.headerTabs}>
           {["leaderboard","subcats","admin"].map(t => (
             <button key={t} onClick={() => setMainTab(t)}
@@ -516,6 +376,7 @@ export default function App() {
         </div>
         <div style={S.headerRight}>
           <span style={S.headerUser}>{session?.username}{session?.isAdmin ? " ★" : ""}</span>
+          <button style={S.ghostBtn} onClick={() => setShowPwChange(true)}>Password</button>
           <button style={S.ghostBtn} onClick={handleLogout}>Logout</button>
         </div>
       </div>
@@ -538,6 +399,7 @@ export default function App() {
               <div style={S.lbHeaderRow}>
                 <span style={{ width: 36 }}>#</span>
                 <span style={{ flex: 1 }}>Title</span>
+                <span style={{ width: 100 }}>Status</span>
                 <span style={{ width: 80, textAlign: "right" }}>Score</span>
                 {lbMode === "combined" && <span style={{ width: 70, textAlign: "right", fontSize: 11, color: "#64748b" }}>Mine</span>}
                 <span style={{ width: 80, textAlign: "right" }}>Ratings</span>
@@ -545,10 +407,17 @@ export default function App() {
               {lbData.map((row, i) => {
                 const score = lbMode === "combined" ? row.combined : row.myScore;
                 return (
-                  <div key={row.title} style={S.lbRow}
-                    onClick={() => setActiveTitle(row.title)}>
+                  <div key={row.title} style={S.lbRow} onClick={() => setActiveTitle(row.title)}>
                     <span style={{ ...S.rank, color: i < 3 ? ["#f59e0b","#94a3b8","#cd7c3a"][i] : "#475569" }}>{i+1}</span>
                     <span style={S.lbTitleText}>{row.title}</span>
+                    <span style={{ width: 100 }}>
+                      {row.myStatus && (
+                        <span style={{ fontSize: 10, fontWeight: 600, color: STATUS_COLORS[row.myStatus] || "#94a3b8",
+                          background: `${STATUS_COLORS[row.myStatus]}18`, padding: "2px 8px", borderRadius: 20 }}>
+                          {row.myStatus}
+                        </span>
+                      )}
+                    </span>
                     <span style={{ width: 80, textAlign: "right", fontSize: 18, fontWeight: 700, color: scoreColor(score) }}>
                       {score !== null ? score.toFixed(2) : <span style={{ color: "#334155" }}>—</span>}
                     </span>
@@ -569,8 +438,7 @@ export default function App() {
           <div style={S.sidebar}>
             <div style={S.card}>
               <div style={S.cardLabel}>SUGGEST TITLE</div>
-              <input style={S.input} placeholder="Title name"
-                value={suggestForm.title}
+              <input style={S.input} placeholder="Title name" value={suggestForm.title}
                 onChange={e => setSuggestForm({ title: e.target.value })}
                 onKeyDown={e => e.key === "Enter" && submitSuggestion()} />
               <button style={S.primaryBtn} onClick={submitSuggestion}>Submit</button>
@@ -617,12 +485,10 @@ export default function App() {
                   const rows = getSubcatLeaderboard(cat, s.key);
                   const top3 = rows.filter(r => (lbMode === "combined" ? r.combined : r.myScore) !== null).slice(0,3);
                   return (
-                    <div key={s.key} style={S.subcatCard}
-                      onClick={() => setActiveSubcat({ ...s, cat })}>
+                    <div key={s.key} style={S.subcatCard} onClick={() => setActiveSubcat({ ...s, cat })}>
                       <div style={S.subcatCardLabel}>{s.label}</div>
                       <div style={S.subcatCardWeight}>{(s.weight*100).toFixed(0)}% of {cat}</div>
-                      {top3.length === 0
-                        ? <div style={S.subcatEmpty}>No scores yet</div>
+                      {top3.length === 0 ? <div style={S.subcatEmpty}>No scores yet</div>
                         : top3.map((row, i) => {
                           const sc = lbMode === "combined" ? row.combined : row.myScore;
                           return (
@@ -646,9 +512,8 @@ export default function App() {
 
       {mainTab === "admin" && (
         <div style={S.adminPage}>
-          {!session?.isAdmin
-            ? <div style={S.noAdmin}>Admin access required.</div>
-            : <>
+          {!session?.isAdmin ? <div style={S.noAdmin}>Admin access required.</div> : (
+            <>
               {pending.length > 0 && (
                 <div style={S.card}>
                   <div style={S.cardLabel}>PENDING SUGGESTIONS</div>
@@ -678,14 +543,40 @@ export default function App() {
                 </div>
               </div>
             </>
-          }
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ─── SUB-COMPONENTS ───────────────────────────────────────────────────────────
+// ─── PASSWORD CHANGE MODAL ────────────────────────────────────────────────────
+function PasswordChangeModal({ onSave, onClose }) {
+  const [pw, setPw] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [err, setErr] = useState("");
+  const handle = () => {
+    if (pw.length < 6) return setErr("Password must be at least 6 characters");
+    if (pw !== confirm) return setErr("Passwords don't match");
+    onSave(pw);
+  };
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000a", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: 340, background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 12, padding: 28 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#f1f5f9", marginBottom: 16 }}>Change Password</div>
+        <input type="password" style={S.input} placeholder="New password" value={pw} onChange={e => setPw(e.target.value)} />
+        <input type="password" style={S.input} placeholder="Confirm password" value={confirm} onChange={e => setConfirm(e.target.value)} />
+        {err && <div style={{ fontSize: 12, color: "#f87171", marginBottom: 8 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={{ ...S.primaryBtn, flex: 1 }} onClick={handle}>Save</button>
+          <button style={{ ...S.ghostBtn, flex: 1 }} onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── APPLICABILITY EDITOR ─────────────────────────────────────────────────────
 function ApplicabilityEditor({ title, current, onSave }) {
   const [open, setOpen] = useState(false);
   const [vals, setVals] = useState(current);
@@ -725,6 +616,7 @@ function ApplicabilityEditor({ title, current, onSave }) {
   );
 }
 
+// ─── SUBCAT LEADERBOARD ───────────────────────────────────────────────────────
 function SubcatLeaderboard({ subcat, rows, lbMode, setLbMode, onBack, onEditInline }) {
   const [editing, setEditing] = useState(null);
   const [editVal, setEditVal] = useState("");
@@ -777,8 +669,7 @@ function SubcatLeaderboard({ subcat, rows, lbMode, setLbMode, onBack, onEditInli
                     <span style={{ fontSize: 18, fontWeight: 700, color: scoreColor(score) }}>
                       {score !== null ? score.toFixed(1) : <span style={{ color: "#334155" }}>—</span>}
                     </span>
-                    <button style={S.editDotBtn}
-                      onClick={() => { setEditing(row.title); setEditVal(row.myScore ?? ""); }}>✎</button>
+                    <button style={S.editDotBtn} onClick={() => { setEditing(row.title); setEditVal(row.myScore ?? ""); }}>✎</button>
                   </div>
                 )}
                 {lbMode === "combined" && !isEditing && (
@@ -795,14 +686,25 @@ function SubcatLeaderboard({ subcat, rows, lbMode, setLbMode, onBack, onEditInli
   );
 }
 
+// ─── RATING SHEET ─────────────────────────────────────────────────────────────
 function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSaveApplicability }) {
-  const [scores, setScores]   = useState(data.scores || {});
-  const [version, setVersion] = useState(data.version || "");
-  const [applic, setApplic]   = useState(applicability || {});
-  const [dirty, setDirty]     = useState(false);
+  const [scores, setScores]         = useState(data.scores || {});
+  const [version, setVersion]       = useState(data.version || "");
+  const [status, setStatus]         = useState(data.status || null);
+  const [notes, setNotes]           = useState(data.notes || "");
+  const [subcatNotes, setSubcatNotes] = useState(data.subcatNotes || {});
+  const [applic, setApplic]         = useState(applicability || {});
+  const [dirty, setDirty]           = useState(false);
   const [applicDirty, setApplicDirty] = useState(false);
-  useEffect(() => { setScores(data.scores || {}); setVersion(data.version || ""); }, [data]);
+  const [expandedNotes, setExpandedNotes] = useState({}); // { "cat:key": bool }
+
+  useEffect(() => {
+    setScores(data.scores || {}); setVersion(data.version || "");
+    setStatus(data.status || null); setNotes(data.notes || "");
+    setSubcatNotes(data.subcatNotes || {});
+  }, [data]);
   useEffect(() => { setApplic(applicability || {}); }, [applicability]);
+
   const setScore = (cat, key, val) => {
     const v = val === "" ? undefined : Math.min(20, Math.max(0, Number(val)));
     setScores(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: v } }));
@@ -813,7 +715,22 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
     setApplic(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: v } }));
     setApplicDirty(true);
   };
+  const setSubcatNote = (cat, key, val) => {
+    setSubcatNotes(p => ({ ...p, [`${cat}:${key}`]: val }));
+    setDirty(true);
+  };
+  const toggleNote = (cat, key) => {
+    const k = `${cat}:${key}`;
+    setExpandedNotes(p => ({ ...p, [k]: !p[k] }));
+  };
+
   const finalScore = calcFinalScore(scores, applic);
+
+  const handleSave = () => {
+    onSave({ scores, version, status, notes, subcatNotes });
+    setDirty(false);
+  };
+
   return (
     <div style={S.app}>
       <style>{fontStyle}</style>
@@ -833,19 +750,46 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
               Save Applicability
             </button>}
           <button style={{ ...S.primaryBtn, width: "auto", padding: "8px 18px", opacity: dirty ? 1 : 0.4 }}
-            onClick={() => { onSave({ scores, version }); setDirty(false); }}>
-            Save Scores
+            onClick={handleSave}>
+            Save
           </button>
         </div>
       </div>
+
+      {/* Meta row */}
       <div style={S.metaRow}>
         <div style={S.metaGroup}>
           <span style={S.metaLabel}>VERSION / FORM</span>
-          <input style={{ ...S.input, width: 280, marginBottom: 0 }}
-            placeholder="e.g. Manga, TYBW Anime, 2011 Anime"
+          <input style={{ ...S.input, width: 240, marginBottom: 0 }}
+            placeholder="e.g. Manga, TYBW Anime"
             value={version} onChange={e => { setVersion(e.target.value); setDirty(true); }} />
         </div>
+        <div style={S.metaGroup}>
+          <span style={S.metaLabel}>STATUS</span>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {COMPLETION_STATUSES.map(s => (
+              <button key={s} onClick={() => { setStatus(s); setDirty(true); }}
+                style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 20, cursor: "pointer", border: "1px solid",
+                  borderColor: status === s ? STATUS_COLORS[s] : "#1e2d3d",
+                  color: status === s ? STATUS_COLORS[s] : "#475569",
+                  background: status === s ? `${STATUS_COLORS[s]}18` : "none",
+                  fontFamily: F }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
+
+      {/* Overall notes */}
+      <div style={{ padding: "12px 28px", borderBottom: "1px solid #1e2d3d" }}>
+        <div style={S.metaLabel}>OVERALL NOTES</div>
+        <textarea style={{ ...S.input, marginBottom: 0, minHeight: 70, width: "100%", fontFamily: F, lineHeight: 1.5 }}
+          placeholder="General thoughts on this title..."
+          value={notes} onChange={e => { setNotes(e.target.value); setDirty(true); }} />
+      </div>
+
+      {/* Cat summary */}
       <div style={S.catSummaryRow}>
         {CATEGORIES.map(cat => {
           const cs = calcCategoryScore(cat, scores, applic);
@@ -860,6 +804,8 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
           );
         })}
       </div>
+
+      {/* Subcategory grid */}
       <div style={S.catGrid}>
         {CATEGORIES.map(cat => (
           <div key={cat} style={S.catBlock}>
@@ -873,24 +819,43 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
                 <span style={{ width: 75, textAlign: "center" }}>Score</span>
                 <span style={{ width: 75, textAlign: "center" }}>Apply</span>
                 <span style={{ width: 44, textAlign: "center" }}>Wt</span>
+                <span style={{ width: 28 }}></span>
               </div>
               {SUBCATEGORIES[cat].map(s => {
                 const app = applic?.[cat]?.[s.key] ?? 1;
                 const sc  = scores?.[cat]?.[s.key];
+                const noteKey = `${cat}:${s.key}`;
+                const noteOpen = expandedNotes[noteKey];
+                const hasNote = subcatNotes[noteKey]?.trim();
                 return (
-                  <div key={s.key} style={S.subRow}>
-                    <span style={{ flex: 1, fontSize: 13, color: "#cbd5e1" }}>{s.label}</span>
-                    <input type="number" min="0" max="20" step="0.5"
-                      style={S.numInput} value={sc ?? ""} placeholder="—"
-                      onChange={e => setScore(cat, s.key, e.target.value)} />
-                    <input type="number" min="0" max="1" step="0.1"
-                      disabled={!isAdmin}
-                      style={{ ...S.numInput, color: app < 1 ? "#fb923c" : "#64748b",
-                        cursor: isAdmin ? "text" : "not-allowed", opacity: isAdmin ? 1 : 0.6 }}
-                      value={app} onChange={e => isAdmin && setApp(cat, s.key, e.target.value)} />
-                    <span style={{ width: 44, textAlign: "center", fontSize: 11, color: "#475569" }}>
-                      {(s.weight*100).toFixed(0)}%
-                    </span>
+                  <div key={s.key}>
+                    <div style={S.subRow}>
+                      <span style={{ flex: 1, fontSize: 13, color: "#cbd5e1" }}>{s.label}</span>
+                      <input type="number" min="0" max="20" step="0.5"
+                        style={S.numInput} value={sc ?? ""} placeholder="—"
+                        onChange={e => setScore(cat, s.key, e.target.value)} />
+                      <input type="number" min="0" max="1" step="0.1"
+                        disabled={!isAdmin}
+                        style={{ ...S.numInput, color: app < 1 ? "#fb923c" : "#64748b",
+                          cursor: isAdmin ? "text" : "not-allowed", opacity: isAdmin ? 1 : 0.6 }}
+                        value={app} onChange={e => isAdmin && setApp(cat, s.key, e.target.value)} />
+                      <span style={{ width: 44, textAlign: "center", fontSize: 11, color: "#475569" }}>
+                        {(s.weight*100).toFixed(0)}%
+                      </span>
+                      <button onClick={() => toggleNote(cat, s.key)}
+                        style={{ width: 28, background: "none", border: "none", cursor: "pointer",
+                          color: hasNote ? "#60a5fa" : "#334155", fontSize: 14, padding: 0, fontFamily: F }}
+                        title="Add note">✎</button>
+                    </div>
+                    {noteOpen && (
+                      <div style={{ padding: "4px 8px 8px", background: "#0b1118" }}>
+                        <textarea
+                          style={{ ...S.input, marginBottom: 0, minHeight: 52, width: "100%", fontSize: 12, fontFamily: F, lineHeight: 1.4 }}
+                          placeholder={`Notes on ${s.label}...`}
+                          value={subcatNotes[noteKey] || ""}
+                          onChange={e => setSubcatNote(cat, s.key, e.target.value)} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -902,6 +867,7 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
   );
 }
 
+// ─── LOGIN ────────────────────────────────────────────────────────────────────
 function LoginScreen({ form, setForm, onSubmit, loading }) {
   return (
     <div style={S.center}>
@@ -940,14 +906,11 @@ function Toast({ msg, type }) {
   return (
     <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999,
       padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff",
-      fontFamily: F, borderRadius: 8,
-      background: type === "err" ? "#ef4444" : "#22c55e" }}>{msg}</div>
+      fontFamily: F, borderRadius: 8, background: type === "err" ? "#ef4444" : "#22c55e" }}>{msg}</div>
   );
 }
-
 function Spinner() {
-  return <div style={{ width: 32, height: 32, borderRadius: "50%",
-    border: "3px solid #1e2533", borderTop: "3px solid #60a5fa" }} />;
+  return <div style={{ width: 32, height: 32, borderRadius: "50%", border: "3px solid #1e2533", borderTop: "3px solid #60a5fa" }} />;
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
@@ -973,7 +936,7 @@ const S = {
   modeBtnActive: { background: "#1e2d3d", borderColor: "#60a5fa", color: "#60a5fa" },
   lbTable: { padding: "8px 0" },
   lbHeaderRow: { display: "flex", alignItems: "center", gap: 12, padding: "8px 20px", fontSize: 11, fontWeight: 600, color: "#334155", letterSpacing: 1, borderBottom: "1px solid #1a2535" },
-  lbRow: { display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", cursor: "pointer", borderBottom: "1px solid #131d2e", transition: "background 0.1s" },
+  lbRow: { display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", cursor: "pointer", borderBottom: "1px solid #131d2e" },
   rank: { width: 36, fontSize: 13, fontWeight: 700 },
   lbTitleText: { flex: 1, fontSize: 15, fontWeight: 500, color: "#cbd5e1" },
   sidebar: { width: 270, display: "flex", flexDirection: "column", gap: 12 },
@@ -1014,9 +977,9 @@ const S = {
   rejectBtn: { background: "#450a0a", border: "1px solid #7f1d1d", color: "#f87171", padding: "5px 12px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 5 },
   editDotBtn: { background: "none", border: "1px solid #1e2d3d", color: "#475569", width: 26, height: 26, cursor: "pointer", fontSize: 13, borderRadius: 4, fontFamily: F },
   sheetTitleBlock: { flex: 1, display: "flex", alignItems: "baseline", gap: 8 },
-  metaRow: { display: "flex", gap: 24, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", flexWrap: "wrap" },
-  metaGroup: { display: "flex", flexDirection: "column", gap: 5 },
-  metaLabel: { fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa" },
+  metaRow: { display: "flex", gap: 24, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", flexWrap: "wrap", alignItems: "flex-start" },
+  metaGroup: { display: "flex", flexDirection: "column", gap: 6 },
+  metaLabel: { fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 4 },
   catSummaryRow: { display: "flex", borderBottom: "1px solid #1e2d3d" },
   catSummaryCard: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "14px 8px", gap: 3, borderRight: "1px solid #1e2d3d" },
   catSummaryLabel: { fontSize: 9, fontWeight: 700, letterSpacing: 2, color: "#475569" },
