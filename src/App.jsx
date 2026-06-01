@@ -13,7 +13,8 @@ const SUBCATEGORIES = {
   ],
   Character: [
     { key: "protagonist",   label: "Protagonist",      weight: 0.25 },
-    { key: "antagonists",   label: "Antagonists",      weight: 0.20 },
+    { key: "antag_primary",  label: "Primary Antagonists",  weight: 0.15 },
+    { key: "antag_secondary", label: "Secondary Antagonists", weight: 0.05 },
     { key: "dynamics",      label: "Dynamics",         weight: 0.18 },
     { key: "development",   label: "Development",      weight: 0.17 },
     { key: "sidecast",      label: "Side Cast",        weight: 0.10 },
@@ -30,7 +31,7 @@ const SUBCATEGORIES = {
     { key: "visuals",    label: "Visuals",           weight: 0.28 },
     { key: "direction",  label: "Direction/Framing", weight: 0.22 },
     { key: "fights",     label: "Fights/Action",     weight: 0.15 },
-    { key: "chardesign", label: "Char. Design",      weight: 0.13 },
+    { key: "chardesign", label: "Character Design",      weight: 0.13 },
     { key: "worldbuild", label: "Worldbuilding",     weight: 0.12 },
     { key: "music",      label: "Music/Sound",       weight: 0.10 },
   ],
@@ -92,12 +93,19 @@ const ANCHORS = {
       { range: "6-9",   desc: "A functional lead who gets the plot from A to B but whose inner life is shallow or inconsistently written" },
       { range: "0-5",   desc: "A protagonist who actively drags the work down — either a narrative void or so poorly written they undermine what surrounds them" },
     ],
-    antagonists: [
-      { range: "18-20", desc: "An antagonist whose ideology, presence, and arc are as compelling as the protagonist's — reframes the entire work through their existence" },
-      { range: "14-17", desc: "A genuinely threatening and well-realized antagonist with clear motivation and meaningful narrative weight" },
-      { range: "10-13", desc: "A solid antagonist who fulfills their role effectively without being particularly memorable or complex" },
-      { range: "6-9",   desc: "An antagonist who exists primarily as an obstacle — motivation is thin, presence is functional at best" },
-      { range: "0-5",   desc: "An antagonist so poorly realized they damage the stakes of the entire work" },
+    antag_primary: [
+      { range: "18-20", desc: "Primary antagonists whose ideology, presence, and arc are as compelling as the protagonist's — they reframe the entire work through their existence and are inseparable from the work's identity" },
+      { range: "14-17", desc: "Genuinely threatening and well-realized primary antagonists with clear motivation, meaningful development, and real narrative weight" },
+      { range: "10-13", desc: "Solid primary antagonists who fulfill their role effectively without being particularly complex or memorable" },
+      { range: "6-9",   desc: "Primary antagonists who exist mainly as obstacles — motivation is thin and presence is functional at best" },
+      { range: "0-5",   desc: "Primary antagonists so poorly realized they damage the stakes of the entire work" },
+    ],
+    antag_secondary: [
+      { range: "18-20", desc: "Secondary antagonists who feel fully realized despite limited screentime — each adds meaningful texture to the world and would be missed if removed" },
+      { range: "14-17", desc: "Strong secondary antagonists with distinct identities and at least one memorable moment or meaningful narrative contribution" },
+      { range: "10-13", desc: "Functional secondary antagonists who serve their role without being particularly distinctive" },
+      { range: "6-9",   desc: "Thin secondary antagonists who feel interchangeable or exist purely as obstacles with no identity of their own" },
+      { range: "0-5",   desc: "Secondary antagonists so underdeveloped they make the world feel hollow or undermine the primary antagonists by association" },
     ],
     dynamics: [
       { range: "18-20", desc: "Relationships that carry the thematic weight of the entire work — interactions that recontextualize both characters and feel genuinely irreplaceable" },
@@ -989,7 +997,7 @@ function BulkEntry({ titles, allRatings, applicability, myUserId, myUsername, on
                 SUBCATEGORIES[cat].map(s => (
                   <th key={`${cat}:${s.key}`} style={S.thCell}>
                     <div style={{ fontSize: 9, color: "#60a5fa", letterSpacing: 1 }}>{cat.slice(0,3).toUpperCase()}</div>
-                    <div style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap" }}>{s.label}</div>
+                    <div style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "normal", wordBreak: "break-word" }}>{s.label}</div>
                   </th>
                 ))
               ))}
@@ -1563,6 +1571,6 @@ const S = {
   subRow: { display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #0f1a2a" },
   numInput: { width: 75, background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "5px 6px", fontSize: 13, textAlign: "center", fontFamily: F, borderRadius: 5, outline: "none" },
   loginCard: { width: 360, background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 12, padding: 32, display: "flex", flexDirection: "column" },
-  thCell: { padding: "8px 6px", background: "#0b1118", color: "#475569", fontWeight: 600, letterSpacing: 1, textAlign: "center", borderBottom: "2px solid #1e2d3d", borderRight: "1px solid #1a2535", whiteSpace: "nowrap" },
-  tdCell: { padding: "6px", borderBottom: "1px solid #0f1a2a", borderRight: "1px solid #0f1a2a", textAlign: "center" },
+  thCell: { padding: "8px 6px", background: "#0b1118", color: "#475569", fontWeight: 600, letterSpacing: 1, textAlign: "center", borderBottom: "2px solid #1e2d3d", borderRight: "1px solid #1a2535", whiteSpace: "normal", width: 80, minWidth: 80 },
+  tdCell: { padding: "6px", borderBottom: "1px solid #0f1a2a", borderRight: "1px solid #0f1a2a", textAlign: "center", width: 80, minWidth: 80 },
 };
