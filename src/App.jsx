@@ -219,7 +219,7 @@ const ANCHORS = {
 const SUPABASE_URL = "https://bocjszpvovustgetvira.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_O_VGkUQ2fhs_9DpwABdVcw_GyG2T97F";
 
-async function sbFetch(path, method = "GET", body = null, token = null) {
+async function sbFetch(path, method = "GET", body = null, token = null, _retry = false) {
   const headers = {
     "Content-Type": "application/json",
     "apikey": SUPABASE_ANON_KEY,
@@ -229,6 +229,23 @@ async function sbFetch(path, method = "GET", body = null, token = null) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     method, headers, body: body ? JSON.stringify(body) : null,
   });
+  if (res.status === 401 && !_retry) {
+    // Token expired mid-session — try to refresh and retry once
+    try {
+      const saved = localStorage.getItem("animanga_session");
+      if (saved) {
+        const sess = JSON.parse(saved);
+        if (sess.refreshToken) {
+          const refreshRes = await refreshSession(sess.refreshToken);
+          if (refreshRes.access_token) {
+            const newSess = { ...sess, token: refreshRes.access_token, refreshToken: refreshRes.refresh_token, expiresAt: Date.now() + (refreshRes.expires_in || 3600) * 1000 };
+            localStorage.setItem("animanga_session", JSON.stringify(newSess));
+            return sbFetch(path, method, body, refreshRes.access_token, true);
+          }
+        }
+      }
+    } catch {}
+  }
   if (!res.ok) { const err = await res.text(); throw new Error(err); }
   const text = await res.text();
   return text ? JSON.parse(text) : null;
@@ -360,7 +377,21 @@ export default function App() {
     const saved = localStorage.getItem("animanga_session");
     if (saved) {
       try {
-        const sess = JSON.parse(saved);
+        let sess = JSON.parse(saved);
+        // If token expires within 10 minutes, refresh immediately on load
+        const msUntilExpiry = (sess.expiresAt || 0) - Date.now();
+        if (sess.refreshToken && msUntilExpiry < 10 * 60 * 1000) {
+          const res = await refreshSession(sess.refreshToken);
+          if (res.access_token) {
+            sess = {
+              ...sess,
+              token: res.access_token,
+              refreshToken: res.refresh_token,
+              expiresAt: Date.now() + (res.expires_in || 3600) * 1000,
+            };
+            localStorage.setItem("animanga_session", JSON.stringify(sess));
+          }
+        }
         setSession(sess);
         loadAll(sess).then(() => setView("main"));
       } catch { setView("login"); }
