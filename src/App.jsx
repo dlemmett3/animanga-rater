@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 // ─── CONFIG ────────────────────────────────────────────────────────────────────
 const CATEGORY_WEIGHTS = { Structure: 0.30, Character: 0.30, Writing: 0.25, Technical: 0.15 };
@@ -37,6 +37,7 @@ const SUBCATEGORIES = {
 };
 
 const CATEGORIES = Object.keys(SUBCATEGORIES);
+const ALL_SUBCATS = CATEGORIES.flatMap(cat => SUBCATEGORIES[cat].map(s => ({ ...s, cat })));
 const COMPLETION_STATUSES = ["Completed","Ongoing","Hiatus","Dropped","Plan to read/watch"];
 const STATUS_COLORS = {
   "Completed": "#34d399", "Ongoing": "#60a5fa", "Hiatus": "#f59e0b",
@@ -92,7 +93,6 @@ async function updatePassword(token, newPassword) {
   });
   return res.json();
 }
-
 async function upsertRating(token, userId, username, title, data) {
   await sbFetch(`ratings?on_conflict=user_id,title`, "POST", { user_id: userId, username, title, data }, token);
 }
@@ -105,6 +105,13 @@ async function fetchApplicability(token) { return await sbFetch("applicability?s
 async function upsertApplicability(token, title, data) { await sbFetch("applicability?on_conflict=title", "POST", { title, data }, token); }
 async function fetchProfiles(token) { return await sbFetch("profiles?select=*", "GET", null, token) || []; }
 async function upsertProfile(token, userId, username, isAdmin) { await sbFetch("profiles?on_conflict=id", "POST", { id: userId, username, is_admin: isAdmin }, token); }
+async function fetchInviteCode(token) {
+  const rows = await sbFetch("settings?key=eq.invite_code&select=*", "GET", null, token) || [];
+  return rows[0]?.value || null;
+}
+async function saveInviteCode(token, code) {
+  await sbFetch("settings?on_conflict=key", "POST", { key: "invite_code", value: code }, token);
+}
 
 // ─── MATH ─────────────────────────────────────────────────────────────────────
 function calcCategoryScore(cat, scores, applicability) {
@@ -140,27 +147,30 @@ const fontStyle = `
   ::-webkit-scrollbar-track { background: #1e2533; }
   ::-webkit-scrollbar-thumb { background: #3a4560; border-radius: 3px; }
   textarea { resize: vertical; }
+  .grid-input:focus { outline: 2px solid #3b82f6; outline-offset: -1px; background: #0f1e30; }
+  .lb-row:hover { background: #131d2e; }
 `;
 const F = "'Inter', system-ui, sans-serif";
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [view, setView]           = useState("loading");
-  const [session, setSession]     = useState(null);
-  const [titles, setTitles]       = useState([]);
-  const [pending, setPending]     = useState([]);
+  const [view, setView]             = useState("loading");
+  const [session, setSession]       = useState(null);
+  const [titles, setTitles]         = useState([]);
+  const [pending, setPending]       = useState([]);
   const [allRatings, setAllRatings] = useState([]);
   const [applicability, setApplicability] = useState({});
-  const [profiles, setProfiles]   = useState([]);
-  const [activeTitle, setActiveTitle] = useState(null);
+  const [profiles, setProfiles]     = useState([]);
+  const [inviteCode, setInviteCode] = useState("");
+  const [activeTitle, setActiveTitle]   = useState(null);
   const [activeSubcat, setActiveSubcat] = useState(null);
-  const [lbMode, setLbMode]       = useState("combined");
-  const [mainTab, setMainTab]     = useState("leaderboard");
-  const [toast, setToast]         = useState(null);
-  const [loginForm, setLoginForm] = useState({ email: "", password: "", username: "", isNew: false });
+  const [lbMode, setLbMode]         = useState("combined");
+  const [mainTab, setMainTab]       = useState("leaderboard");
+  const [toast, setToast]           = useState(null);
+  const [loginForm, setLoginForm]   = useState({ email: "", password: "", username: "", inviteCode: "", isNew: false });
   const [suggestForm, setSuggestForm] = useState({ title: "" });
   const [showPwChange, setShowPwChange] = useState(false);
-  const [loading, setLoading]     = useState(false);
+  const [loading, setLoading]       = useState(false);
 
   const showToast = (msg, type = "ok") => { setToast({ msg, type }); setTimeout(() => setToast(null), 2800); };
   const isConfigured = SUPABASE_URL !== "YOUR_SUPABASE_URL";
@@ -179,9 +189,10 @@ export default function App() {
 
   const loadAll = async (sess) => {
     try {
-      const [rawTitles, rawRatings, rawApplic, rawProfiles] = await Promise.all([
+      const [rawTitles, rawRatings, rawApplic, rawProfiles, code] = await Promise.all([
         fetchTitles(sess.token), fetchAllRatings(sess.token),
         fetchApplicability(sess.token), fetchProfiles(sess.token),
+        fetchInviteCode(sess.token),
       ]);
       setTitles(rawTitles.filter(t => t.approved).map(t => ({ id: t.id, title: t.title })));
       setPending(rawTitles.filter(t => !t.approved));
@@ -190,16 +201,21 @@ export default function App() {
       for (const row of rawApplic) appMap[row.title] = row.data;
       setApplicability(appMap);
       setProfiles(rawProfiles);
-    } catch (e) { showToast("Failed to load data", "err"); }
+      setInviteCode(code || "");
+    } catch { showToast("Failed to load data", "err"); }
   };
 
   const handleLogin = async () => {
-    const { email, password, username, isNew } = loginForm;
+    const { email, password, username, inviteCode: enteredCode, isNew } = loginForm;
     if (!email.trim() || !password.trim()) return showToast("Fill in all fields", "err");
     if (isNew && !username.trim()) return showToast("Enter a username", "err");
     setLoading(true);
     try {
       if (isNew) {
+        // Validate invite code
+        const serverCode = await fetchInviteCode(null);
+        if (serverCode && enteredCode.trim().toLowerCase() !== serverCode.toLowerCase())
+          return showToast("Invalid invite code", "err");
         const res = await signUp(email, password);
         if (res.error) return showToast(res.error.message || "Signup failed", "err");
         const sess = { token: res.access_token, userId: res.user.id, username: username.trim(), isAdmin: false };
@@ -215,7 +231,7 @@ export default function App() {
         localStorage.setItem("animanga_session", JSON.stringify(sess));
         setSession(sess); await loadAll(sess); setView("main"); showToast(`Welcome back, ${sess.username}!`);
       }
-    } catch (e) { showToast("Something went wrong", "err"); } finally { setLoading(false); }
+    } catch { showToast("Something went wrong", "err"); } finally { setLoading(false); }
   };
 
   const handleLogout = async () => {
@@ -249,6 +265,14 @@ export default function App() {
       setApplicability(prev => ({ ...prev, [title]: data }));
       showToast("Applicability saved");
     } catch { showToast("Save failed", "err"); }
+  };
+
+  const handleSaveInviteCode = async (code) => {
+    try {
+      await saveInviteCode(session.token, code);
+      setInviteCode(code);
+      showToast("Invite code saved");
+    } catch { showToast("Failed", "err"); }
   };
 
   const submitSuggestion = async () => {
@@ -293,7 +317,8 @@ export default function App() {
     const myData = myRatingFor(title);
     const myScore = myData ? calcFinalScore(myData.data?.scores, titleApp) : null;
     const myStatus = myData?.data?.status || null;
-    return { title, combined, myScore, myStatus, userScores, ratedBy: userScores.length };
+    const divergence = (combined !== null && myScore !== null) ? Math.abs(myScore - combined) : null;
+    return { title, combined, myScore, myStatus, divergence, userScores, ratedBy: userScores.length };
   }).sort((a, b) => {
     const sa = lbMode === "combined" ? a.combined : a.myScore;
     const sb = lbMode === "combined" ? b.combined : b.myScore;
@@ -334,11 +359,12 @@ export default function App() {
     <div style={S.center}><style>{fontStyle}</style>
       <div style={{ ...S.loginCard, textAlign: "center" }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: "#f1f5f9", marginBottom: 12 }}>Not Configured</div>
-        <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.6 }}>Replace SUPABASE_URL and SUPABASE_ANON_KEY at the top of the file.</div>
+        <div style={{ fontSize: 13, color: "#64748b" }}>Replace SUPABASE_URL and SUPABASE_ANON_KEY at the top of the file.</div>
       </div>
     </div>
   );
   if (view === "login") return <LoginScreen form={loginForm} setForm={setLoginForm} onSubmit={handleLogin} loading={loading} />;
+
   if (view === "main" && activeTitle) return (
     <RatingSheet title={activeTitle}
       data={myRatingFor(activeTitle)?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} }}
@@ -357,6 +383,7 @@ export default function App() {
   );
 
   const lbData = getLeaderboard();
+  const maxDivergence = Math.max(...lbData.map(r => r.divergence || 0));
 
   return (
     <div style={S.app}>
@@ -367,10 +394,10 @@ export default function App() {
       <div style={S.header}>
         <div style={S.headerLogo}><span style={S.logoA}>ANIMANGA</span><span style={S.logoB}>RATER</span></div>
         <div style={S.headerTabs}>
-          {["leaderboard","subcats","admin"].map(t => (
+          {["leaderboard","subcats","bulk","admin"].map(t => (
             <button key={t} onClick={() => setMainTab(t)}
               style={{ ...S.headerTab, ...(mainTab === t ? S.headerTabActive : {}) }}>
-              {t === "leaderboard" ? "OVERALL" : t === "subcats" ? "SUBCATEGORIES" : "ADMIN"}
+              {t === "leaderboard" ? "OVERALL" : t === "subcats" ? "SUBCATEGORIES" : t === "bulk" ? "BULK ENTRY" : "ADMIN"}
             </button>
           ))}
         </div>
@@ -381,6 +408,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* ── OVERALL LEADERBOARD ── */}
       {mainTab === "leaderboard" && (
         <div style={S.pageWrap}>
           <div style={S.leaderWrap}>
@@ -399,20 +427,25 @@ export default function App() {
               <div style={S.lbHeaderRow}>
                 <span style={{ width: 36 }}>#</span>
                 <span style={{ flex: 1 }}>Title</span>
-                <span style={{ width: 100 }}>Status</span>
+                <span style={{ width: 110 }}>Status</span>
                 <span style={{ width: 80, textAlign: "right" }}>Score</span>
-                {lbMode === "combined" && <span style={{ width: 70, textAlign: "right", fontSize: 11, color: "#64748b" }}>Mine</span>}
-                <span style={{ width: 80, textAlign: "right" }}>Ratings</span>
+                {lbMode === "combined" && <>
+                  <span style={{ width: 60, textAlign: "right", fontSize: 11, color: "#64748b" }}>Mine</span>
+                  <span style={{ width: 70, textAlign: "right", fontSize: 11, color: "#64748b" }}>Diff</span>
+                </>}
+                <span style={{ width: 70, textAlign: "right" }}>Ratings</span>
               </div>
               {lbData.map((row, i) => {
                 const score = lbMode === "combined" ? row.combined : row.myScore;
+                const divOpacity = maxDivergence > 0 && row.divergence !== null ? row.divergence / maxDivergence : 0;
                 return (
-                  <div key={row.title} style={S.lbRow} onClick={() => setActiveTitle(row.title)}>
+                  <div key={row.title} className="lb-row" style={{ ...S.lbRow, cursor: "pointer" }}
+                    onClick={() => setActiveTitle(row.title)}>
                     <span style={{ ...S.rank, color: i < 3 ? ["#f59e0b","#94a3b8","#cd7c3a"][i] : "#475569" }}>{i+1}</span>
                     <span style={S.lbTitleText}>{row.title}</span>
-                    <span style={{ width: 100 }}>
+                    <span style={{ width: 110 }}>
                       {row.myStatus && (
-                        <span style={{ fontSize: 10, fontWeight: 600, color: STATUS_COLORS[row.myStatus] || "#94a3b8",
+                        <span style={{ fontSize: 10, fontWeight: 600, color: STATUS_COLORS[row.myStatus],
                           background: `${STATUS_COLORS[row.myStatus]}18`, padding: "2px 8px", borderRadius: 20 }}>
                           {row.myStatus}
                         </span>
@@ -421,18 +454,28 @@ export default function App() {
                     <span style={{ width: 80, textAlign: "right", fontSize: 18, fontWeight: 700, color: scoreColor(score) }}>
                       {score !== null ? score.toFixed(2) : <span style={{ color: "#334155" }}>—</span>}
                     </span>
-                    {lbMode === "combined" && (
-                      <span style={{ width: 70, textAlign: "right", fontSize: 12, color: scoreColor(row.myScore) }}>
+                    {lbMode === "combined" && <>
+                      <span style={{ width: 60, textAlign: "right", fontSize: 12, color: scoreColor(row.myScore) }}>
                         {row.myScore !== null ? row.myScore.toFixed(1) : "—"}
                       </span>
-                    )}
-                    <span style={{ width: 80, textAlign: "right", fontSize: 12, color: "#475569" }}>
+                      <span style={{ width: 70, textAlign: "right", fontSize: 12,
+                        color: row.divergence !== null ? `rgba(251,146,60,${0.4 + divOpacity * 0.6})` : "#334155",
+                        fontWeight: divOpacity > 0.6 ? 700 : 400 }}>
+                        {row.divergence !== null ? `±${row.divergence.toFixed(1)}` : "—"}
+                      </span>
+                    </>}
+                    <span style={{ width: 70, textAlign: "right", fontSize: 12, color: "#475569" }}>
                       {row.ratedBy} user{row.ratedBy !== 1 ? "s" : ""}
                     </span>
                   </div>
                 );
               })}
             </div>
+            {lbMode === "combined" && lbData.some(r => r.divergence !== null) && (
+              <div style={{ padding: "10px 20px", borderTop: "1px solid #1e2d3d", fontSize: 11, color: "#475569" }}>
+                ± Diff = how far your score is from the group average. Brighter orange = bigger disagreement.
+              </div>
+            )}
           </div>
 
           <div style={S.sidebar}>
@@ -464,6 +507,7 @@ export default function App() {
         </div>
       )}
 
+      {/* ── SUBCATEGORY LEADERBOARDS ── */}
       {mainTab === "subcats" && (
         <div style={S.subcatPage}>
           <div style={S.subcatPageHead}>
@@ -510,10 +554,33 @@ export default function App() {
         </div>
       )}
 
+      {/* ── BULK ENTRY ── */}
+      {mainTab === "bulk" && (
+        <BulkEntry
+          titles={titles}
+          allRatings={allRatings}
+          applicability={applicability}
+          myUserId={session?.userId}
+          myUsername={session?.username}
+          onSaveAll={async (changedRatings) => {
+            for (const [title, data] of Object.entries(changedRatings)) {
+              await saveRating(title, data);
+            }
+            showToast(`Saved ${Object.keys(changedRatings).length} title(s)`);
+          }}
+        />
+      )}
+
+      {/* ── ADMIN ── */}
       {mainTab === "admin" && (
         <div style={S.adminPage}>
           {!session?.isAdmin ? <div style={S.noAdmin}>Admin access required.</div> : (
             <>
+              <div style={S.card}>
+                <div style={S.cardLabel}>INVITE CODE</div>
+                <p style={S.adminHint}>Anyone registering must enter this code. Leave blank to disable invite-only mode.</p>
+                <InviteCodeEditor current={inviteCode} onSave={handleSaveInviteCode} />
+              </div>
               {pending.length > 0 && (
                 <div style={S.card}>
                   <div style={S.cardLabel}>PENDING SUGGESTIONS</div>
@@ -533,7 +600,7 @@ export default function App() {
               )}
               <div style={S.card}>
                 <div style={S.cardLabel}>APPLICABILITY SETTINGS</div>
-                <p style={S.adminHint}>Set per-title applicability for each subcategory. 1 = fully applicable, 0 = not applicable. Applies to all users.</p>
+                <p style={S.adminHint}>Set per-title applicability. 1 = fully applicable, 0 = not applicable.</p>
                 <div style={S.applicGrid}>
                   {titles.map(({ title }) => (
                     <ApplicabilityEditor key={title} title={title}
@@ -550,13 +617,152 @@ export default function App() {
   );
 }
 
+// ─── BULK ENTRY ───────────────────────────────────────────────────────────────
+function BulkEntry({ titles, allRatings, applicability, myUserId, myUsername, onSaveAll }) {
+  const [localScores, setLocalScores] = useState({});
+  const [dirty, setDirty] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const init = {};
+    for (const { title } of titles) {
+      const r = allRatings.find(r => r.user_id === myUserId && r.title === title);
+      init[title] = r?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} };
+    }
+    setLocalScores(init);
+  }, [titles, allRatings, myUserId]);
+
+  const setScore = (title, cat, key, val) => {
+    const v = val === "" ? undefined : Math.min(20, Math.max(0, Number(val)));
+    setLocalScores(p => ({
+      ...p,
+      [title]: { ...p[title], scores: { ...p[title]?.scores, [cat]: { ...(p[title]?.scores?.[cat] || {}), [key]: v } } }
+    }));
+    setDirty(p => ({ ...p, [title]: true }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const changed = {};
+    for (const title of Object.keys(dirty)) {
+      if (dirty[title]) changed[title] = localScores[title];
+    }
+    await onSaveAll(changed);
+    setDirty({});
+    setSaving(false);
+  };
+
+  const dirtyCount = Object.values(dirty).filter(Boolean).length;
+
+  return (
+    <div style={{ padding: "24px 16px", maxWidth: 1400, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div>
+          <div style={S.panelTitle}>BULK SCORE ENTRY</div>
+          <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>
+            Tab between cells. Changes are highlighted. Hit Save All when done.
+          </div>
+        </div>
+        <button style={{ ...S.primaryBtn, width: "auto", padding: "9px 24px",
+          opacity: dirtyCount > 0 ? 1 : 0.4 }}
+          onClick={handleSave} disabled={saving || dirtyCount === 0}>
+          {saving ? "Saving..." : `Save All${dirtyCount > 0 ? ` (${dirtyCount} changed)` : ""}`}
+        </button>
+      </div>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
+          <thead>
+            <tr>
+              <th style={{ ...S.thCell, width: 140, textAlign: "left", position: "sticky", left: 0, background: "#0b1118", zIndex: 2 }}>
+                TITLE
+              </th>
+              <th style={{ ...S.thCell, width: 60 }}>SCORE</th>
+              {CATEGORIES.map(cat => (
+                SUBCATEGORIES[cat].map(s => (
+                  <th key={`${cat}:${s.key}`} style={S.thCell}>
+                    <div style={{ fontSize: 9, color: "#60a5fa", letterSpacing: 1 }}>{cat.slice(0,3).toUpperCase()}</div>
+                    <div style={{ fontSize: 10, color: "#94a3b8", whiteSpace: "nowrap" }}>{s.label}</div>
+                  </th>
+                ))
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {titles.map(({ title }) => {
+              const data = localScores[title] || {};
+              const titleApp = applicability[title] || {};
+              const finalScore = calcFinalScore(data.scores, titleApp);
+              const isDirty = dirty[title];
+              return (
+                <tr key={title} style={{ background: isDirty ? "#0f1e30" : "transparent" }}>
+                  <td style={{ ...S.tdCell, position: "sticky", left: 0, background: isDirty ? "#0f1e30" : "#080d14",
+                    zIndex: 1, fontWeight: 600, color: "#cbd5e1", borderRight: "2px solid #1e2d3d" }}>
+                    {title}
+                    {isDirty && <span style={{ fontSize: 9, color: "#f59e0b", marginLeft: 6 }}>●</span>}
+                  </td>
+                  <td style={{ ...S.tdCell, textAlign: "center", fontWeight: 700, color: scoreColor(finalScore),
+                    borderRight: "2px solid #1e2d3d" }}>
+                    {finalScore !== null ? finalScore.toFixed(2) : "—"}
+                  </td>
+                  {CATEGORIES.map(cat =>
+                    SUBCATEGORIES[cat].map(s => {
+                      const app = titleApp?.[cat]?.[s.key] ?? 1;
+                      const sc = data.scores?.[cat]?.[s.key];
+                      return (
+                        <td key={`${cat}:${s.key}`} style={{ ...S.tdCell,
+                          background: app === 0 ? "#0a0a0a" : undefined,
+                          borderLeft: s.key === SUBCATEGORIES[cat][0].key ? "1px solid #1e2d3d" : undefined }}>
+                          {app === 0
+                            ? <span style={{ color: "#1e2d3d", fontSize: 10 }}>N/A</span>
+                            : <input
+                                className="grid-input"
+                                type="number" min="0" max="20" step="0.5"
+                                style={{ width: "100%", background: "none", border: "none",
+                                  color: sc !== undefined ? scoreColor(Number(sc)) : "#334155",
+                                  fontSize: 13, textAlign: "center", fontFamily: F,
+                                  padding: "4px 2px", cursor: "text" }}
+                                value={sc ?? ""}
+                                placeholder="—"
+                                onChange={e => setScore(title, cat, s.key, e.target.value)}
+                              />
+                          }
+                        </td>
+                      );
+                    })
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── INVITE CODE EDITOR ───────────────────────────────────────────────────────
+function InviteCodeEditor({ current, onSave }) {
+  const [val, setVal] = useState(current);
+  useEffect(() => { setVal(current); }, [current]);
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      <input style={{ ...S.input, marginBottom: 0, flex: 1 }}
+        placeholder="Leave blank for open registration"
+        value={val} onChange={e => setVal(e.target.value)} />
+      <button style={{ ...S.primaryBtn, width: "auto", padding: "9px 18px" }}
+        onClick={() => onSave(val)}>Save</button>
+    </div>
+  );
+}
+
 // ─── PASSWORD CHANGE MODAL ────────────────────────────────────────────────────
 function PasswordChangeModal({ onSave, onClose }) {
   const [pw, setPw] = useState("");
   const [confirm, setConfirm] = useState("");
   const [err, setErr] = useState("");
   const handle = () => {
-    if (pw.length < 6) return setErr("Password must be at least 6 characters");
+    if (pw.length < 6) return setErr("At least 6 characters");
     if (pw !== confirm) return setErr("Passwords don't match");
     onSave(pw);
   };
@@ -582,14 +788,13 @@ function ApplicabilityEditor({ title, current, onSave }) {
   const [vals, setVals] = useState(current);
   useEffect(() => { setVals(current); }, [current]);
   const set = (cat, key, v) => {
-    const clamped = Math.min(1, Math.max(0, Number(v)));
-    setVals(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: clamped } }));
+    setVals(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: Math.min(1, Math.max(0, Number(v))) } }));
   };
   return (
     <div style={S.applicCard}>
       <div style={S.applicHeader} onClick={() => setOpen(o => !o)}>
         <span style={S.applicTitle}>{title}</span>
-        <span style={{ color: "#60a5fa", fontSize: 12 }}>{open ? "▲ collapse" : "▼ edit"}</span>
+        <span style={{ color: "#60a5fa", fontSize: 12 }}>{open ? "▲" : "▼ edit"}</span>
       </div>
       {open && (
         <div style={S.applicBody}>
@@ -688,15 +893,15 @@ function SubcatLeaderboard({ subcat, rows, lbMode, setLbMode, onBack, onEditInli
 
 // ─── RATING SHEET ─────────────────────────────────────────────────────────────
 function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSaveApplicability }) {
-  const [scores, setScores]         = useState(data.scores || {});
-  const [version, setVersion]       = useState(data.version || "");
-  const [status, setStatus]         = useState(data.status || null);
-  const [notes, setNotes]           = useState(data.notes || "");
+  const [scores, setScores]           = useState(data.scores || {});
+  const [version, setVersion]         = useState(data.version || "");
+  const [status, setStatus]           = useState(data.status || null);
+  const [notes, setNotes]             = useState(data.notes || "");
   const [subcatNotes, setSubcatNotes] = useState(data.subcatNotes || {});
-  const [applic, setApplic]         = useState(applicability || {});
-  const [dirty, setDirty]           = useState(false);
+  const [applic, setApplic]           = useState(applicability || {});
+  const [dirty, setDirty]             = useState(false);
   const [applicDirty, setApplicDirty] = useState(false);
-  const [expandedNotes, setExpandedNotes] = useState({}); // { "cat:key": bool }
+  const [expandedNotes, setExpandedNotes] = useState({});
 
   useEffect(() => {
     setScores(data.scores || {}); setVersion(data.version || "");
@@ -711,25 +916,16 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
     setDirty(true);
   };
   const setApp = (cat, key, val) => {
-    const v = Math.min(1, Math.max(0, Number(val)));
-    setApplic(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: v } }));
+    setApplic(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: Math.min(1, Math.max(0, Number(val))) } }));
     setApplicDirty(true);
   };
   const setSubcatNote = (cat, key, val) => {
-    setSubcatNotes(p => ({ ...p, [`${cat}:${key}`]: val }));
-    setDirty(true);
+    setSubcatNotes(p => ({ ...p, [`${cat}:${key}`]: val })); setDirty(true);
   };
   const toggleNote = (cat, key) => {
-    const k = `${cat}:${key}`;
-    setExpandedNotes(p => ({ ...p, [k]: !p[k] }));
+    const k = `${cat}:${key}`; setExpandedNotes(p => ({ ...p, [k]: !p[k] }));
   };
-
   const finalScore = calcFinalScore(scores, applic);
-
-  const handleSave = () => {
-    onSave({ scores, version, status, notes, subcatNotes });
-    setDirty(false);
-  };
 
   return (
     <div style={S.app}>
@@ -750,13 +946,12 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
               Save Applicability
             </button>}
           <button style={{ ...S.primaryBtn, width: "auto", padding: "8px 18px", opacity: dirty ? 1 : 0.4 }}
-            onClick={handleSave}>
+            onClick={() => { onSave({ scores, version, status, notes, subcatNotes }); setDirty(false); }}>
             Save
           </button>
         </div>
       </div>
 
-      {/* Meta row */}
       <div style={S.metaRow}>
         <div style={S.metaGroup}>
           <span style={S.metaLabel}>VERSION / FORM</span>
@@ -772,8 +967,7 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
                 style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 20, cursor: "pointer", border: "1px solid",
                   borderColor: status === s ? STATUS_COLORS[s] : "#1e2d3d",
                   color: status === s ? STATUS_COLORS[s] : "#475569",
-                  background: status === s ? `${STATUS_COLORS[s]}18` : "none",
-                  fontFamily: F }}>
+                  background: status === s ? `${STATUS_COLORS[s]}18` : "none", fontFamily: F }}>
                 {s}
               </button>
             ))}
@@ -781,7 +975,6 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
         </div>
       </div>
 
-      {/* Overall notes */}
       <div style={{ padding: "12px 28px", borderBottom: "1px solid #1e2d3d" }}>
         <div style={S.metaLabel}>OVERALL NOTES</div>
         <textarea style={{ ...S.input, marginBottom: 0, minHeight: 70, width: "100%", fontFamily: F, lineHeight: 1.5 }}
@@ -789,7 +982,6 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
           value={notes} onChange={e => { setNotes(e.target.value); setDirty(true); }} />
       </div>
 
-      {/* Cat summary */}
       <div style={S.catSummaryRow}>
         {CATEGORIES.map(cat => {
           const cs = calcCategoryScore(cat, scores, applic);
@@ -805,7 +997,6 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
         })}
       </div>
 
-      {/* Subcategory grid */}
       <div style={S.catGrid}>
         {CATEGORIES.map(cat => (
           <div key={cat} style={S.catBlock}>
@@ -844,8 +1035,7 @@ function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSa
                       </span>
                       <button onClick={() => toggleNote(cat, s.key)}
                         style={{ width: 28, background: "none", border: "none", cursor: "pointer",
-                          color: hasNote ? "#60a5fa" : "#334155", fontSize: 14, padding: 0, fontFamily: F }}
-                        title="Add note">✎</button>
+                          color: hasNote ? "#60a5fa" : "#334155", fontSize: 14, padding: 0, fontFamily: F }}>✎</button>
                     </div>
                     {noteOpen && (
                       <div style={{ padding: "4px 8px 8px", background: "#0b1118" }}>
@@ -878,14 +1068,19 @@ function LoginScreen({ form, setForm, onSubmit, loading }) {
           <div style={S.logoB}>RATER</div>
         </div>
         {form.isNew && (
-          <input style={S.input} placeholder="Username (displayed to others)"
+          <input style={S.input} placeholder="Username"
             value={form.username} onChange={e => setForm(p => ({ ...p, username: e.target.value }))} />
         )}
         <input style={S.input} placeholder="Email"
           value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
         <input style={S.input} placeholder="Password" type="password"
           value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
-          onKeyDown={e => e.key === "Enter" && onSubmit()} />
+          onKeyDown={e => !form.isNew && e.key === "Enter" && onSubmit()} />
+        {form.isNew && (
+          <input style={S.input} placeholder="Invite code"
+            value={form.inviteCode} onChange={e => setForm(p => ({ ...p, inviteCode: e.target.value }))}
+            onKeyDown={e => e.key === "Enter" && onSubmit()} />
+        )}
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           {[false,true].map(isNew => (
             <button key={String(isNew)} onClick={() => setForm(p => ({ ...p, isNew }))}
@@ -904,9 +1099,9 @@ function LoginScreen({ form, setForm, onSubmit, loading }) {
 
 function Toast({ msg, type }) {
   return (
-    <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999,
-      padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff",
-      fontFamily: F, borderRadius: 8, background: type === "err" ? "#ef4444" : "#22c55e" }}>{msg}</div>
+    <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999, padding: "10px 20px",
+      fontSize: 13, fontWeight: 600, color: "#fff", fontFamily: F, borderRadius: 8,
+      background: type === "err" ? "#ef4444" : "#22c55e" }}>{msg}</div>
   );
 }
 function Spinner() {
@@ -936,7 +1131,7 @@ const S = {
   modeBtnActive: { background: "#1e2d3d", borderColor: "#60a5fa", color: "#60a5fa" },
   lbTable: { padding: "8px 0" },
   lbHeaderRow: { display: "flex", alignItems: "center", gap: 12, padding: "8px 20px", fontSize: 11, fontWeight: 600, color: "#334155", letterSpacing: 1, borderBottom: "1px solid #1a2535" },
-  lbRow: { display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", cursor: "pointer", borderBottom: "1px solid #131d2e" },
+  lbRow: { display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", borderBottom: "1px solid #131d2e" },
   rank: { width: 36, fontSize: 13, fontWeight: 700 },
   lbTitleText: { flex: 1, fontSize: 15, fontWeight: 500, color: "#cbd5e1" },
   sidebar: { width: 270, display: "flex", flexDirection: "column", gap: 12 },
@@ -992,4 +1187,7 @@ const S = {
   subRow: { display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #0f1a2a" },
   numInput: { width: 75, background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "5px 6px", fontSize: 13, textAlign: "center", fontFamily: F, borderRadius: 5, outline: "none" },
   loginCard: { width: 360, background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 12, padding: 32, display: "flex", flexDirection: "column" },
+  thCell: { padding: "8px 6px", background: "#0b1118", color: "#475569", fontWeight: 600, letterSpacing: 1, textAlign: "center", borderBottom: "2px solid #1e2d3d", borderRight: "1px solid #1a2535", whiteSpace: "nowrap" },
+  tdCell: { padding: "6px", borderBottom: "1px solid #0f1a2a", borderRight: "1px solid #0f1a2a", textAlign: "center" },
 };
+
