@@ -1073,9 +1073,15 @@ function AnchorTooltip({ cat, subkey, label }) {
   const handleMouseEnter = (e) => {
     const rect = ref.current?.getBoundingClientRect();
     if (rect) {
+      const tooltipHeight = 280; // approximate tooltip height
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const flipUp = spaceBelow < tooltipHeight;
       setPos({
-        top: rect.bottom + window.scrollY + 4,
+        top: flipUp
+          ? rect.top + window.scrollY - tooltipHeight - 4
+          : rect.bottom + window.scrollY + 4,
         left: Math.min(rect.left + window.scrollX, window.innerWidth - 340),
+        flipUp,
       });
     }
     setVisible(true);
@@ -1097,7 +1103,9 @@ function AnchorTooltip({ cat, subkey, label }) {
           width: 320, background: "#0b1118",
           border: "1px solid #1e2d3d", borderRadius: 8,
           padding: "12px 14px", zIndex: 9999,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+          boxShadow: pos.flipUp
+            ? "0 -8px 32px rgba(0,0,0,0.6)"
+            : "0 8px 32px rgba(0,0,0,0.6)",
           pointerEvents: "none",
         }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 8 }}>
