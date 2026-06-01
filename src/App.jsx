@@ -256,6 +256,15 @@ async function signOut(token) {
     headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` },
   });
 }
+
+async function refreshSession(refreshToken) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  return res.json();
+}
 async function updatePassword(token, newPassword) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
     method: "PUT",
@@ -358,6 +367,30 @@ export default function App() {
     } else { setView("login"); }
   }, []);
 
+  // Auto-refresh token 5 minutes before expiry
+  useEffect(() => {
+    if (!session) return;
+    const msUntilExpiry = (session.expiresAt || 0) - Date.now();
+    const refreshIn = Math.max(msUntilExpiry - 5 * 60 * 1000, 0);
+    const timer = setTimeout(async () => {
+      if (!session.refreshToken) return;
+      try {
+        const res = await refreshSession(session.refreshToken);
+        if (res.access_token) {
+          const newSess = {
+            ...session,
+            token: res.access_token,
+            refreshToken: res.refresh_token,
+            expiresAt: Date.now() + (res.expires_in || 3600) * 1000,
+          };
+          setSession(newSess);
+          localStorage.setItem("animanga_session", JSON.stringify(newSess));
+        }
+      } catch (e) { console.error("Token refresh failed", e); }
+    }, refreshIn);
+    return () => clearTimeout(timer);
+  }, [session]);
+
   const loadAll = async (sess) => {
     try {
       const [rawTitles, rawRatings, rawApplic, rawProfiles, code] = await Promise.all([
@@ -389,7 +422,7 @@ export default function App() {
           return showToast("Invalid invite code", "err");
         const res = await signUp(email, password);
         if (res.error) return showToast(res.error.message || "Signup failed", "err");
-        const sess = { token: res.access_token, userId: res.user.id, username: username.trim(), isAdmin: false };
+        const sess = { token: res.access_token, refreshToken: res.refresh_token, expiresAt: Date.now() + (res.expires_in || 3600) * 1000, userId: res.user.id, username: username.trim(), isAdmin: false };
         await upsertProfile(sess.token, sess.userId, sess.username, false);
         localStorage.setItem("animanga_session", JSON.stringify(sess));
         setSession(sess); await loadAll(sess); setView("main"); showToast(`Welcome, ${sess.username}!`);
@@ -398,7 +431,7 @@ export default function App() {
         if (res.error) return showToast(res.error.message || "Login failed", "err");
         const profileRows = await sbFetch(`profiles?id=eq.${res.user.id}&select=*`, "GET", null, res.access_token);
         const profile = profileRows?.[0];
-        const sess = { token: res.access_token, userId: res.user.id, username: profile?.username || email.split("@")[0], isAdmin: profile?.is_admin || false };
+        const sess = { token: res.access_token, refreshToken: res.refresh_token, expiresAt: Date.now() + (res.expires_in || 3600) * 1000, userId: res.user.id, username: profile?.username || email.split("@")[0], isAdmin: profile?.is_admin || false };
         localStorage.setItem("animanga_session", JSON.stringify(sess));
         setSession(sess); await loadAll(sess); setView("main"); showToast(`Welcome back, ${sess.username}!`);
       }
