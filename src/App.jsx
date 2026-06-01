@@ -1,0 +1,1032 @@
+import { useState, useEffect } from "react";
+
+// ─── CONFIG ────────────────────────────────────────────────────────────────────
+const CATEGORY_WEIGHTS = {
+  Structure: 0.30,
+  Character: 0.30,
+  Writing:   0.25,
+  Technical: 0.15,
+};
+
+const SUBCATEGORIES = {
+  Structure: [
+    { key: "plot",       label: "Plot",               weight: 0.25 },
+    { key: "climax",     label: "Climax/Peaks",        weight: 0.25 },
+    { key: "pacing",     label: "Pacing/Consistency",  weight: 0.20 },
+    { key: "conclusion", label: "Conclusion",          weight: 0.20 },
+    { key: "intro",      label: "Intro",               weight: 0.10 },
+  ],
+  Character: [
+    { key: "protagonist",   label: "Protagonist",      weight: 0.25 },
+    { key: "antagonists",   label: "Antagonists",      weight: 0.20 },
+    { key: "dynamics",      label: "Dynamics",         weight: 0.18 },
+    { key: "development",   label: "Development",      weight: 0.17 },
+    { key: "sidecast",      label: "Side Cast",        weight: 0.10 },
+    { key: "deuteragonist", label: "Deuteragonist(s)", weight: 0.10 },
+  ],
+  Writing: [
+    { key: "themes",    label: "Themes/Philosophy",  weight: 0.30 },
+    { key: "emotion",   label: "Emotion",            weight: 0.30 },
+    { key: "dialogue",  label: "Dialogue/Monologue", weight: 0.18 },
+    { key: "cohesion",  label: "Narrative Cohesion", weight: 0.14 },
+    { key: "symbolism", label: "Symbolism",          weight: 0.08 },
+  ],
+  Technical: [
+    { key: "visuals",    label: "Visuals",           weight: 0.28 },
+    { key: "direction",  label: "Direction/Framing", weight: 0.22 },
+    { key: "fights",     label: "Fights/Action",     weight: 0.15 },
+    { key: "chardesign", label: "Char. Design",      weight: 0.13 },
+    { key: "worldbuild", label: "Worldbuilding",     weight: 0.12 },
+    { key: "music",      label: "Music/Sound",       weight: 0.10 },
+  ],
+};
+
+const CATEGORIES = Object.keys(SUBCATEGORIES);
+
+const DEFAULT_TITLES = [
+  "Chainsaw Man","Tokyo Ghoul","FMAB","Berserk","Attack on Titan",
+  "Vinland Saga","Hunter x Hunter","Bleach","Neon Genesis Evangelion",
+  "Jujutsu Kaisen","Naruto","One Piece","Fruits Basket","JJK Modulo",
+  "Death Note","Dr. Stone"
+];
+
+// ─── SUPABASE ─────────────────────────────────────────────────────────────────
+// REPLACE THESE WITH YOUR OWN VALUES FROM SUPABASE
+const SUPABASE_URL = "https://bocjszpvovustgetvira.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_O_VGkUQ2fhs_9DpwABdVcw_GyG2T97F";
+
+async function sbFetch(path, method = "GET", body = null, token = null) {
+  const headers = {
+    "Content-Type": "application/json",
+    "apikey": SUPABASE_ANON_KEY,
+    "Authorization": `Bearer ${token || SUPABASE_ANON_KEY}`,
+    "Prefer": method === "POST" ? "return=representation" : "",
+  };
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method, headers, body: body ? JSON.stringify(body) : null,
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Supabase error: ${err}`);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// Auth helpers
+async function signUp(email, password) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+    body: JSON.stringify({ email, password }),
+  });
+  return res.json();
+}
+
+async function signIn(email, password) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+    body: JSON.stringify({ email, password }),
+  });
+  return res.json();
+}
+
+async function signOut(token) {
+  await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+    method: "POST",
+    headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` },
+  });
+}
+
+// DB helpers - upsert ratings
+async function upsertRating(token, userId, username, title, data) {
+  await sbFetch(
+    `ratings?on_conflict=user_id,title`,
+    "POST",
+    { user_id: userId, username, title, data },
+    token
+  );
+}
+
+async function fetchAllRatings(token) {
+  return await sbFetch("ratings?select=*", "GET", null, token) || [];
+}
+
+async function fetchTitles(token) {
+  const rows = await sbFetch("titles?select=*&order=created_at.asc", "GET", null, token) || [];
+  return rows;
+}
+
+async function addTitle(token, title) {
+  await sbFetch("titles?on_conflict=title", "POST", { title, approved: true }, token);
+}
+
+async function addPending(token, title, suggestedBy) {
+  await sbFetch("titles", "POST", { title, approved: false, suggested_by: suggestedBy }, token);
+}
+
+async function approveTitle(token, id) {
+  await sbFetch(`titles?id=eq.${id}`, "PATCH", { approved: true }, token);
+}
+
+async function deleteTitle(token, id) {
+  await sbFetch(`titles?id=eq.${id}`, "DELETE", null, token);
+}
+
+async function fetchApplicability(token) {
+  return await sbFetch("applicability?select=*", "GET", null, token) || [];
+}
+
+async function upsertApplicability(token, title, data) {
+  await sbFetch(
+    "applicability?on_conflict=title",
+    "POST",
+    { title, data },
+    token
+  );
+}
+
+async function fetchProfiles(token) {
+  return await sbFetch("profiles?select=*", "GET", null, token) || [];
+}
+
+async function upsertProfile(token, userId, username, isAdmin) {
+  await sbFetch(
+    "profiles?on_conflict=id",
+    "POST",
+    { id: userId, username, is_admin: isAdmin },
+    token
+  );
+}
+
+// ─── MATH ─────────────────────────────────────────────────────────────────────
+function calcCategoryScore(cat, scores, applicability) {
+  const subs = SUBCATEGORIES[cat];
+  let wSum = 0, wScoreSum = 0;
+  for (const s of subs) {
+    const app = applicability?.[cat]?.[s.key] ?? 1;
+    const adjW = s.weight * app;
+    const sc = scores?.[cat]?.[s.key];
+    if (sc !== undefined && sc !== null && sc !== "") {
+      wScoreSum += Number(sc) * adjW;
+      wSum += adjW;
+    }
+  }
+  return wSum > 0 ? wScoreSum / wSum : null;
+}
+
+function calcFinalScore(scores, applicability) {
+  let wSum = 0, wScoreSum = 0;
+  for (const cat of CATEGORIES) {
+    const cs = calcCategoryScore(cat, scores, applicability);
+    if (cs !== null) {
+      const w = CATEGORY_WEIGHTS[cat];
+      wScoreSum += cs * w;
+      wSum += w;
+    }
+  }
+  return wSum > 0 ? wScoreSum / wSum : null;
+}
+
+function scoreColor(s) {
+  if (s === null || s === undefined) return "#94a3b8";
+  if (s >= 16) return "#f59e0b";
+  if (s >= 13) return "#60a5fa";
+  if (s >= 10) return "#34d399";
+  if (s >= 7)  return "#fb923c";
+  return "#f87171";
+}
+
+const fontStyle = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  * { box-sizing: border-box; } body { margin: 0; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #1e2533; }
+  ::-webkit-scrollbar-thumb { background: #3a4560; border-radius: 3px; }
+`;
+
+const F = "'Inter', system-ui, sans-serif";
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+export default function App() {
+  const [view, setView]           = useState("loading");
+  const [session, setSession]     = useState(null); // { token, userId, username, isAdmin }
+  const [titles, setTitles]       = useState([]);
+  const [pending, setPending]     = useState([]);
+  const [allRatings, setAllRatings] = useState([]); // raw rows from DB
+  const [applicability, setApplicability] = useState({}); // { title: { cat: { key: val } } }
+  const [profiles, setProfiles]   = useState([]);
+  const [activeTitle, setActiveTitle] = useState(null);
+  const [activeSubcat, setActiveSubcat] = useState(null);
+  const [lbMode, setLbMode]       = useState("combined");
+  const [mainTab, setMainTab]     = useState("leaderboard");
+  const [toast, setToast]         = useState(null);
+  const [loginForm, setLoginForm] = useState({ email: "", password: "", username: "", isNew: false });
+  const [suggestForm, setSuggestForm] = useState({ title: "" });
+  const [loading, setLoading]     = useState(false);
+
+  const showToast = (msg, type = "ok") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2800);
+  };
+
+  // ── Check if Supabase is configured ─────────────────────────────────────────
+  const isConfigured = SUPABASE_URL !== "YOUR_SUPABASE_URL";
+
+  // ── Bootstrap ───────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isConfigured) { setView("unconfigured"); return; }
+    const saved = localStorage.getItem("animanga_session");
+    if (saved) {
+      try {
+        const sess = JSON.parse(saved);
+        setSession(sess);
+        loadAll(sess).then(() => setView("main"));
+      } catch { setView("login"); }
+    } else {
+      setView("login");
+    }
+  }, []);
+
+  const loadAll = async (sess) => {
+    try {
+      const [rawTitles, rawRatings, rawApplic, rawProfiles] = await Promise.all([
+        fetchTitles(sess.token),
+        fetchAllRatings(sess.token),
+        fetchApplicability(sess.token),
+        fetchProfiles(sess.token),
+      ]);
+      setTitles(rawTitles.filter(t => t.approved).map(t => ({ id: t.id, title: t.title })));
+      setPending(rawTitles.filter(t => !t.approved));
+      setAllRatings(rawRatings);
+      const appMap = {};
+      for (const row of rawApplic) appMap[row.title] = row.data;
+      setApplicability(appMap);
+      setProfiles(rawProfiles);
+    } catch (e) {
+      console.error(e);
+      showToast("Failed to load data", "err");
+    }
+  };
+
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  const handleLogin = async () => {
+    const { email, password, username, isNew } = loginForm;
+    if (!email.trim() || !password.trim()) return showToast("Fill in all fields", "err");
+    if (isNew && !username.trim()) return showToast("Enter a username", "err");
+    setLoading(true);
+    try {
+      if (isNew) {
+        const res = await signUp(email, password);
+        if (res.error) return showToast(res.error.message || "Signup failed", "err");
+        const sess = {
+          token: res.access_token,
+          userId: res.user.id,
+          username: username.trim(),
+          isAdmin: false,
+        };
+        await upsertProfile(sess.token, sess.userId, sess.username, false);
+        localStorage.setItem("animanga_session", JSON.stringify(sess));
+        setSession(sess);
+        await loadAll(sess);
+        setView("main");
+        showToast(`Welcome, ${sess.username}!`);
+      } else {
+        const res = await signIn(email, password);
+        if (res.error) return showToast(res.error.message || "Login failed", "err");
+        // Get profile
+        const profileRows = await sbFetch(`profiles?id=eq.${res.user.id}&select=*`, "GET", null, res.access_token);
+        const profile = profileRows?.[0];
+        const sess = {
+          token: res.access_token,
+          userId: res.user.id,
+          username: profile?.username || email.split("@")[0],
+          isAdmin: profile?.is_admin || false,
+        };
+        localStorage.setItem("animanga_session", JSON.stringify(sess));
+        setSession(sess);
+        await loadAll(sess);
+        setView("main");
+        showToast(`Welcome back, ${sess.username}!`);
+      }
+    } catch (e) {
+      showToast("Something went wrong", "err");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (session?.token) await signOut(session.token);
+    localStorage.removeItem("animanga_session");
+    setSession(null); setView("login");
+  };
+
+  // ── Save rating ─────────────────────────────────────────────────────────────
+  const saveRating = async (title, data) => {
+    try {
+      await upsertRating(session.token, session.userId, session.username, title, data);
+      // Update local state
+      setAllRatings(prev => {
+        const filtered = prev.filter(r => !(r.user_id === session.userId && r.title === title));
+        return [...filtered, { user_id: session.userId, username: session.username, title, data }];
+      });
+      showToast("Saved");
+    } catch (e) { showToast("Save failed", "err"); }
+  };
+
+  // ── Applicability ────────────────────────────────────────────────────────────
+  const saveApplicability = async (title, data) => {
+    try {
+      await upsertApplicability(session.token, title, data);
+      setApplicability(prev => ({ ...prev, [title]: data }));
+      showToast("Applicability saved");
+    } catch (e) { showToast("Save failed", "err"); }
+  };
+
+  // ── Titles ───────────────────────────────────────────────────────────────────
+  const submitSuggestion = async () => {
+    if (!suggestForm.title.trim()) return showToast("Enter a title", "err");
+    try {
+      await addPending(session.token, suggestForm.title.trim(), session.username);
+      await loadAll(session);
+      setSuggestForm({ title: "" });
+      showToast("Suggestion submitted");
+    } catch (e) { showToast("Failed", "err"); }
+  };
+
+  const approveSuggestion = async (item) => {
+    try {
+      await approveTitle(session.token, item.id);
+      await loadAll(session);
+      showToast(`"${item.title}" added`);
+    } catch (e) { showToast("Failed", "err"); }
+  };
+
+  const rejectSuggestion = async (item) => {
+    try {
+      await deleteTitle(session.token, item.id);
+      await loadAll(session);
+      showToast("Rejected");
+    } catch (e) { showToast("Failed", "err"); }
+  };
+
+  // ── Export ───────────────────────────────────────────────────────────────────
+  const handleExport = () => {
+    const myRatings = allRatings.filter(r => r.user_id === session.userId);
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      username: session.username,
+      titles: titles.map(t => t.title),
+      applicability,
+      ratings: {},
+    };
+    for (const r of myRatings) exportData.ratings[r.title] = r.data;
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `animanga_ratings_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Downloaded");
+  };
+
+  // ── Leaderboard helpers ──────────────────────────────────────────────────────
+  const myRatingFor = (title) => allRatings.find(r => r.user_id === session?.userId && r.title === title);
+
+  const getLeaderboard = () => titles.map(({ title }) => {
+    const titleApp = applicability[title] || {};
+    const titleRatings = allRatings.filter(r => r.title === title);
+    const userScores = titleRatings.map(r => {
+      const sc = calcFinalScore(r.data?.scores, titleApp);
+      return sc !== null ? { user: r.username, score: sc } : null;
+    }).filter(Boolean);
+    const combined = userScores.length
+      ? userScores.reduce((s, x) => s + x.score, 0) / userScores.length : null;
+    const myData = myRatingFor(title);
+    const myScore = myData ? calcFinalScore(myData.data?.scores, titleApp) : null;
+    return { title, combined, myScore, userScores, ratedBy: userScores.length };
+  }).sort((a, b) => {
+    const sa = lbMode === "combined" ? a.combined : a.myScore;
+    const sb = lbMode === "combined" ? b.combined : b.myScore;
+    if (sa === null && sb === null) return 0;
+    if (sa === null) return 1; if (sb === null) return -1;
+    return sb - sa;
+  });
+
+  const getSubcatLeaderboard = (cat, subkey) => titles.map(({ title }) => {
+    const titleApp = applicability[title] || {};
+    const app = titleApp?.[cat]?.[subkey] ?? 1;
+    const titleRatings = allRatings.filter(r => r.title === title);
+    const userScores = titleRatings.map(r => {
+      const sc = r.data?.scores?.[cat]?.[subkey];
+      return (sc !== undefined && sc !== null) ? { user: r.username, score: Number(sc) } : null;
+    }).filter(Boolean);
+    const combined = userScores.length
+      ? userScores.reduce((s, x) => s + x.score, 0) / userScores.length : null;
+    const myData = myRatingFor(title);
+    const myScore = myData?.data?.scores?.[cat]?.[subkey];
+    return {
+      title, combined,
+      myScore: myScore !== undefined ? Number(myScore) : null,
+      userScores, app, ratedBy: userScores.length
+    };
+  }).sort((a, b) => {
+    const sa = lbMode === "combined" ? a.combined : a.myScore;
+    const sb = lbMode === "combined" ? b.combined : b.myScore;
+    if (sa === null && sb === null) return 0;
+    if (sa === null) return 1; if (sb === null) return -1;
+    return sb - sa;
+  });
+
+  const updateInlineScore = async (title, cat, subkey, val) => {
+    const existing = myRatingFor(title);
+    const currentData = existing?.data || { scores: {}, version: "" };
+    const newScores = {
+      ...currentData.scores,
+      [cat]: { ...(currentData.scores[cat] || {}), [subkey]: val === "" ? undefined : Number(val) }
+    };
+    await saveRating(title, { ...currentData, scores: newScores });
+  };
+
+  // ── RENDER ───────────────────────────────────────────────────────────────────
+  if (view === "loading") return <div style={S.center}><style>{fontStyle}</style><Spinner /></div>;
+
+  if (view === "unconfigured") return (
+    <div style={S.center}>
+      <style>{fontStyle}</style>
+      <div style={{ ...S.loginCard, textAlign: "center" }}>
+        <div style={{ fontSize: 40, marginBottom: 16 }}>⚙️</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#f1f5f9", marginBottom: 12 }}>Not Yet Configured</div>
+        <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.6 }}>
+          Replace <code style={{ background: "#0b1118", padding: "2px 6px", borderRadius: 4, color: "#60a5fa" }}>YOUR_SUPABASE_URL</code> and <code style={{ background: "#0b1118", padding: "2px 6px", borderRadius: 4, color: "#60a5fa" }}>YOUR_SUPABASE_ANON_KEY</code> at the top of the file with your Supabase project credentials.
+        </div>
+      </div>
+    </div>
+  );
+
+  if (view === "login") return (
+    <LoginScreen form={loginForm} setForm={setLoginForm} onSubmit={handleLogin} loading={loading} />
+  );
+
+  if (view === "main" && activeTitle) return (
+    <RatingSheet
+      title={activeTitle}
+      data={myRatingFor(activeTitle)?.data || { scores: {}, version: "" }}
+      applicability={applicability[activeTitle] || {}}
+      onSave={(d) => saveRating(activeTitle, d)}
+      onBack={() => setActiveTitle(null)}
+      isAdmin={session?.isAdmin}
+      onSaveApplicability={(a) => saveApplicability(activeTitle, a)}
+    />
+  );
+
+  if (view === "main" && activeSubcat) return (
+    <SubcatLeaderboard
+      subcat={activeSubcat}
+      rows={getSubcatLeaderboard(activeSubcat.cat, activeSubcat.key)}
+      lbMode={lbMode} setLbMode={setLbMode}
+      onBack={() => setActiveSubcat(null)}
+      onEditInline={(title, val) => updateInlineScore(title, activeSubcat.cat, activeSubcat.key, val)}
+      myUserId={session?.userId}
+    />
+  );
+
+  const lbData = getLeaderboard();
+
+  return (
+    <div style={S.app}>
+      <style>{fontStyle}</style>
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+
+      <div style={S.header}>
+        <div style={S.headerLogo}>
+          <span style={S.logoA}>ANIMANGA</span>
+          <span style={S.logoB}>RATER</span>
+        </div>
+        <div style={S.headerTabs}>
+          {["leaderboard","subcats","admin"].map(t => (
+            <button key={t} onClick={() => setMainTab(t)}
+              style={{ ...S.headerTab, ...(mainTab === t ? S.headerTabActive : {}) }}>
+              {t === "leaderboard" ? "OVERALL" : t === "subcats" ? "SUBCATEGORIES" : "ADMIN"}
+            </button>
+          ))}
+        </div>
+        <div style={S.headerRight}>
+          <span style={S.headerUser}>{session?.username}{session?.isAdmin ? " ★" : ""}</span>
+          <button style={S.ghostBtn} onClick={handleLogout}>Logout</button>
+        </div>
+      </div>
+
+      {mainTab === "leaderboard" && (
+        <div style={S.pageWrap}>
+          <div style={S.leaderWrap}>
+            <div style={S.panelHead}>
+              <span style={S.panelTitle}>OVERALL RANKINGS</span>
+              <div style={S.modeToggle}>
+                {["combined","individual"].map(m => (
+                  <button key={m} onClick={() => setLbMode(m)}
+                    style={{ ...S.modeBtn, ...(lbMode === m ? S.modeBtnActive : {}) }}>
+                    {m === "combined" ? "AVG" : "MINE"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={S.lbTable}>
+              <div style={S.lbHeaderRow}>
+                <span style={{ width: 36 }}>#</span>
+                <span style={{ flex: 1 }}>Title</span>
+                <span style={{ width: 80, textAlign: "right" }}>Score</span>
+                {lbMode === "combined" && <span style={{ width: 70, textAlign: "right", fontSize: 11, color: "#64748b" }}>Mine</span>}
+                <span style={{ width: 80, textAlign: "right" }}>Ratings</span>
+              </div>
+              {lbData.map((row, i) => {
+                const score = lbMode === "combined" ? row.combined : row.myScore;
+                return (
+                  <div key={row.title} style={S.lbRow}
+                    onClick={() => setActiveTitle(row.title)}>
+                    <span style={{ ...S.rank, color: i < 3 ? ["#f59e0b","#94a3b8","#cd7c3a"][i] : "#475569" }}>{i+1}</span>
+                    <span style={S.lbTitleText}>{row.title}</span>
+                    <span style={{ width: 80, textAlign: "right", fontSize: 18, fontWeight: 700, color: scoreColor(score) }}>
+                      {score !== null ? score.toFixed(2) : <span style={{ color: "#334155" }}>—</span>}
+                    </span>
+                    {lbMode === "combined" && (
+                      <span style={{ width: 70, textAlign: "right", fontSize: 12, color: scoreColor(row.myScore) }}>
+                        {row.myScore !== null ? row.myScore.toFixed(1) : "—"}
+                      </span>
+                    )}
+                    <span style={{ width: 80, textAlign: "right", fontSize: 12, color: "#475569" }}>
+                      {row.ratedBy} user{row.ratedBy !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={S.sidebar}>
+            <div style={S.card}>
+              <div style={S.cardLabel}>SUGGEST TITLE</div>
+              <input style={S.input} placeholder="Title name"
+                value={suggestForm.title}
+                onChange={e => setSuggestForm({ title: e.target.value })}
+                onKeyDown={e => e.key === "Enter" && submitSuggestion()} />
+              <button style={S.primaryBtn} onClick={submitSuggestion}>Submit</button>
+            </div>
+            <div style={S.card}>
+              <div style={S.cardLabel}>USERS</div>
+              {profiles.map(p => {
+                const count = allRatings.filter(r => r.user_id === p.id).length;
+                return (
+                  <div key={p.id} style={S.userRow}>
+                    <span style={S.userName}>{p.username}{p.is_admin ? " ★" : ""}</span>
+                    <span style={S.userCount}>{count} rated</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={S.card}>
+              <div style={S.cardLabel}>EXPORT</div>
+              <p style={{ fontSize: 12, color: "#475569", marginBottom: 10 }}>Download all your scores as a JSON backup.</p>
+              <button style={{ ...S.primaryBtn, background: "#16a34a" }} onClick={handleExport}>↓ Download My Scores</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mainTab === "subcats" && (
+        <div style={S.subcatPage}>
+          <div style={S.subcatPageHead}>
+            <span style={S.panelTitle}>SUBCATEGORY LEADERBOARDS</span>
+            <div style={S.modeToggle}>
+              {["combined","individual"].map(m => (
+                <button key={m} onClick={() => setLbMode(m)}
+                  style={{ ...S.modeBtn, ...(lbMode === m ? S.modeBtnActive : {}) }}>
+                  {m === "combined" ? "AVG" : "MINE"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {CATEGORIES.map(cat => (
+            <div key={cat} style={S.subcatCatBlock}>
+              <div style={S.subcatCatLabel}>{cat.toUpperCase()}</div>
+              <div style={S.subcatCardGrid}>
+                {SUBCATEGORIES[cat].map(s => {
+                  const rows = getSubcatLeaderboard(cat, s.key);
+                  const top3 = rows.filter(r => (lbMode === "combined" ? r.combined : r.myScore) !== null).slice(0,3);
+                  return (
+                    <div key={s.key} style={S.subcatCard}
+                      onClick={() => setActiveSubcat({ ...s, cat })}>
+                      <div style={S.subcatCardLabel}>{s.label}</div>
+                      <div style={S.subcatCardWeight}>{(s.weight*100).toFixed(0)}% of {cat}</div>
+                      {top3.length === 0
+                        ? <div style={S.subcatEmpty}>No scores yet</div>
+                        : top3.map((row, i) => {
+                          const sc = lbMode === "combined" ? row.combined : row.myScore;
+                          return (
+                            <div key={row.title} style={S.subcatMiniRow}>
+                              <span style={{ ...S.rank, fontSize: 11, color: i === 0 ? "#f59e0b" : "#475569" }}>{i+1}</span>
+                              <span style={S.subcatMiniTitle}>{row.title}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: scoreColor(sc) }}>{sc?.toFixed(1)}</span>
+                            </div>
+                          );
+                        })
+                      }
+                      <div style={S.subcatCardFooter}>View all →</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {mainTab === "admin" && (
+        <div style={S.adminPage}>
+          {!session?.isAdmin
+            ? <div style={S.noAdmin}>Admin access required.</div>
+            : <>
+              {pending.length > 0 && (
+                <div style={S.card}>
+                  <div style={S.cardLabel}>PENDING SUGGESTIONS</div>
+                  {pending.map(item => (
+                    <div key={item.id} style={S.pendingRow}>
+                      <div>
+                        <div style={S.pendingTitle}>{item.title}</div>
+                        <div style={S.pendingMeta}>suggested by {item.suggested_by}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button style={S.approveBtn} onClick={() => approveSuggestion(item)}>✓ Approve</button>
+                        <button style={S.rejectBtn} onClick={() => rejectSuggestion(item)}>✕ Reject</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={S.card}>
+                <div style={S.cardLabel}>APPLICABILITY SETTINGS</div>
+                <p style={S.adminHint}>Set per-title applicability for each subcategory. 1 = fully applicable, 0 = not applicable. Applies to all users.</p>
+                <div style={S.applicGrid}>
+                  {titles.map(({ title }) => (
+                    <ApplicabilityEditor key={title} title={title}
+                      current={applicability[title] || {}}
+                      onSave={(a) => saveApplicability(title, a)} />
+                  ))}
+                </div>
+              </div>
+            </>
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SUB-COMPONENTS ───────────────────────────────────────────────────────────
+function ApplicabilityEditor({ title, current, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [vals, setVals] = useState(current);
+  useEffect(() => { setVals(current); }, [current]);
+  const set = (cat, key, v) => {
+    const clamped = Math.min(1, Math.max(0, Number(v)));
+    setVals(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: clamped } }));
+  };
+  return (
+    <div style={S.applicCard}>
+      <div style={S.applicHeader} onClick={() => setOpen(o => !o)}>
+        <span style={S.applicTitle}>{title}</span>
+        <span style={{ color: "#60a5fa", fontSize: 12 }}>{open ? "▲ collapse" : "▼ edit"}</span>
+      </div>
+      {open && (
+        <div style={S.applicBody}>
+          {CATEGORIES.map(cat => (
+            <div key={cat} style={{ marginBottom: 12 }}>
+              <div style={S.applicCatLabel}>{cat}</div>
+              {SUBCATEGORIES[cat].map(s => {
+                const v = vals?.[cat]?.[s.key] ?? 1;
+                return (
+                  <div key={s.key} style={S.applicRow}>
+                    <span style={S.applicSubLabel}>{s.label}</span>
+                    <input type="number" min="0" max="1" step="0.1"
+                      style={{ ...S.numInput, color: v < 1 ? "#fb923c" : "#e2e8f0", width: 60 }}
+                      value={v} onChange={e => set(cat, s.key, e.target.value)} />
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <button style={S.primaryBtn} onClick={() => { onSave(vals); setOpen(false); }}>Save</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubcatLeaderboard({ subcat, rows, lbMode, setLbMode, onBack, onEditInline }) {
+  const [editing, setEditing] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const commit = (title) => { onEditInline(title, editVal); setEditing(null); setEditVal(""); };
+  return (
+    <div style={S.app}>
+      <style>{fontStyle}</style>
+      <div style={S.header}>
+        <button style={S.ghostBtn} onClick={onBack}>← Back</button>
+        <div style={{ flex: 1, textAlign: "center" }}>
+          <span style={S.logoA}>{subcat.label.toUpperCase()}</span>
+          <span style={{ ...S.logoB, marginLeft: 8 }}>{subcat.cat.toUpperCase()}</span>
+        </div>
+        <div style={S.modeToggle}>
+          {["combined","individual"].map(m => (
+            <button key={m} onClick={() => setLbMode(m)}
+              style={{ ...S.modeBtn, ...(lbMode === m ? S.modeBtnActive : {}) }}>
+              {m === "combined" ? "AVG" : "MINE"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ maxWidth: 700, margin: "32px auto", padding: "0 16px" }}>
+        <div style={S.lbTable}>
+          <div style={S.lbHeaderRow}>
+            <span style={{ width: 36 }}>#</span>
+            <span style={{ flex: 1 }}>Title</span>
+            <span style={{ width: 80, textAlign: "center" }}>Apply</span>
+            <span style={{ width: 110, textAlign: "right" }}>Score /20</span>
+            {lbMode === "combined" && <span style={{ width: 70, textAlign: "right", fontSize: 11, color: "#64748b" }}>Mine</span>}
+          </div>
+          {rows.map((row, i) => {
+            const score = lbMode === "combined" ? row.combined : row.myScore;
+            const isEditing = editing === row.title;
+            return (
+              <div key={row.title} style={S.lbRow}>
+                <span style={{ ...S.rank, color: i < 3 ? ["#f59e0b","#94a3b8","#cd7c3a"][i] : "#475569" }}>{i+1}</span>
+                <span style={S.lbTitleText}>{row.title}</span>
+                <span style={{ width: 80, textAlign: "center", fontSize: 12, color: row.app < 1 ? "#fb923c" : "#475569" }}>{row.app}x</span>
+                {isEditing ? (
+                  <div style={{ width: 110, display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                    <input autoFocus type="number" min="0" max="20" step="0.5"
+                      style={{ ...S.numInput, width: 60 }} value={editVal}
+                      onChange={e => setEditVal(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") commit(row.title); if (e.key === "Escape") setEditing(null); }} />
+                    <button style={S.approveBtn} onClick={() => commit(row.title)}>✓</button>
+                  </div>
+                ) : (
+                  <div style={{ width: 110, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: scoreColor(score) }}>
+                      {score !== null ? score.toFixed(1) : <span style={{ color: "#334155" }}>—</span>}
+                    </span>
+                    <button style={S.editDotBtn}
+                      onClick={() => { setEditing(row.title); setEditVal(row.myScore ?? ""); }}>✎</button>
+                  </div>
+                )}
+                {lbMode === "combined" && !isEditing && (
+                  <span style={{ width: 70, textAlign: "right", fontSize: 12, color: scoreColor(row.myScore) }}>
+                    {row.myScore !== null ? row.myScore.toFixed(1) : "—"}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RatingSheet({ title, data, applicability, onSave, onBack, isAdmin, onSaveApplicability }) {
+  const [scores, setScores]   = useState(data.scores || {});
+  const [version, setVersion] = useState(data.version || "");
+  const [applic, setApplic]   = useState(applicability || {});
+  const [dirty, setDirty]     = useState(false);
+  const [applicDirty, setApplicDirty] = useState(false);
+  useEffect(() => { setScores(data.scores || {}); setVersion(data.version || ""); }, [data]);
+  useEffect(() => { setApplic(applicability || {}); }, [applicability]);
+  const setScore = (cat, key, val) => {
+    const v = val === "" ? undefined : Math.min(20, Math.max(0, Number(val)));
+    setScores(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: v } }));
+    setDirty(true);
+  };
+  const setApp = (cat, key, val) => {
+    const v = Math.min(1, Math.max(0, Number(val)));
+    setApplic(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: v } }));
+    setApplicDirty(true);
+  };
+  const finalScore = calcFinalScore(scores, applic);
+  return (
+    <div style={S.app}>
+      <style>{fontStyle}</style>
+      <div style={S.header}>
+        <button style={S.ghostBtn} onClick={onBack}>← Back</button>
+        <div style={S.sheetTitleBlock}>
+          <span style={S.logoA}>{title}</span>
+          {finalScore !== null &&
+            <span style={{ fontSize: 26, fontWeight: 800, color: scoreColor(finalScore), marginLeft: 16 }}>
+              {finalScore.toFixed(3)}
+            </span>}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {isAdmin && applicDirty &&
+            <button style={{ ...S.primaryBtn, background: "#f59e0b", width: "auto", padding: "8px 18px" }}
+              onClick={() => { onSaveApplicability(applic); setApplicDirty(false); }}>
+              Save Applicability
+            </button>}
+          <button style={{ ...S.primaryBtn, width: "auto", padding: "8px 18px", opacity: dirty ? 1 : 0.4 }}
+            onClick={() => { onSave({ scores, version }); setDirty(false); }}>
+            Save Scores
+          </button>
+        </div>
+      </div>
+      <div style={S.metaRow}>
+        <div style={S.metaGroup}>
+          <span style={S.metaLabel}>VERSION / FORM</span>
+          <input style={{ ...S.input, width: 280, marginBottom: 0 }}
+            placeholder="e.g. Manga, TYBW Anime, 2011 Anime"
+            value={version} onChange={e => { setVersion(e.target.value); setDirty(true); }} />
+        </div>
+      </div>
+      <div style={S.catSummaryRow}>
+        {CATEGORIES.map(cat => {
+          const cs = calcCategoryScore(cat, scores, applic);
+          return (
+            <div key={cat} style={S.catSummaryCard}>
+              <span style={S.catSummaryLabel}>{cat.toUpperCase()}</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: cs !== null ? scoreColor(cs) : "#334155" }}>
+                {cs !== null ? cs.toFixed(2) : "—"}
+              </span>
+              <span style={{ fontSize: 11, color: "#475569" }}>{(CATEGORY_WEIGHTS[cat]*100).toFixed(0)}%</span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={S.catGrid}>
+        {CATEGORIES.map(cat => (
+          <div key={cat} style={S.catBlock}>
+            <div style={S.catBlockHead}>
+              <span style={S.catBlockTitle}>{cat.toUpperCase()}</span>
+              <span style={{ fontSize: 11, color: "#475569" }}>{(CATEGORY_WEIGHTS[cat]*100).toFixed(0)}%</span>
+            </div>
+            <div style={S.subTable}>
+              <div style={S.subTableHead}>
+                <span style={{ flex: 1 }}>Subcategory</span>
+                <span style={{ width: 75, textAlign: "center" }}>Score</span>
+                <span style={{ width: 75, textAlign: "center" }}>Apply</span>
+                <span style={{ width: 44, textAlign: "center" }}>Wt</span>
+              </div>
+              {SUBCATEGORIES[cat].map(s => {
+                const app = applic?.[cat]?.[s.key] ?? 1;
+                const sc  = scores?.[cat]?.[s.key];
+                return (
+                  <div key={s.key} style={S.subRow}>
+                    <span style={{ flex: 1, fontSize: 13, color: "#cbd5e1" }}>{s.label}</span>
+                    <input type="number" min="0" max="20" step="0.5"
+                      style={S.numInput} value={sc ?? ""} placeholder="—"
+                      onChange={e => setScore(cat, s.key, e.target.value)} />
+                    <input type="number" min="0" max="1" step="0.1"
+                      disabled={!isAdmin}
+                      style={{ ...S.numInput, color: app < 1 ? "#fb923c" : "#64748b",
+                        cursor: isAdmin ? "text" : "not-allowed", opacity: isAdmin ? 1 : 0.6 }}
+                      value={app} onChange={e => isAdmin && setApp(cat, s.key, e.target.value)} />
+                    <span style={{ width: 44, textAlign: "center", fontSize: 11, color: "#475569" }}>
+                      {(s.weight*100).toFixed(0)}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ form, setForm, onSubmit, loading }) {
+  return (
+    <div style={S.center}>
+      <style>{fontStyle}</style>
+      <div style={S.loginCard}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={S.logoA}>ANIMANGA</div>
+          <div style={S.logoB}>RATER</div>
+        </div>
+        {form.isNew && (
+          <input style={S.input} placeholder="Username (displayed to others)"
+            value={form.username} onChange={e => setForm(p => ({ ...p, username: e.target.value }))} />
+        )}
+        <input style={S.input} placeholder="Email"
+          value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+        <input style={S.input} placeholder="Password" type="password"
+          value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+          onKeyDown={e => e.key === "Enter" && onSubmit()} />
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {[false,true].map(isNew => (
+            <button key={String(isNew)} onClick={() => setForm(p => ({ ...p, isNew }))}
+              style={{ ...S.modeBtn, flex: 1, ...(form.isNew === isNew ? S.modeBtnActive : {}) }}>
+              {isNew ? "REGISTER" : "LOGIN"}
+            </button>
+          ))}
+        </div>
+        <button style={{ ...S.primaryBtn, opacity: loading ? 0.6 : 1 }} onClick={onSubmit} disabled={loading}>
+          {loading ? "Please wait..." : form.isNew ? "Create Account" : "Sign In"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Toast({ msg, type }) {
+  return (
+    <div style={{ position: "fixed", top: 16, right: 16, zIndex: 9999,
+      padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#fff",
+      fontFamily: F, borderRadius: 8,
+      background: type === "err" ? "#ef4444" : "#22c55e" }}>{msg}</div>
+  );
+}
+
+function Spinner() {
+  return <div style={{ width: 32, height: 32, borderRadius: "50%",
+    border: "3px solid #1e2533", borderTop: "3px solid #60a5fa" }} />;
+}
+
+// ─── STYLES ───────────────────────────────────────────────────────────────────
+const S = {
+  app: { minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F },
+  center: { minHeight: "100vh", background: "#0f1623", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: F },
+  header: { display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", background: "#0b1118", position: "sticky", top: 0, zIndex: 100 },
+  headerLogo: { display: "flex", alignItems: "baseline", gap: 6 },
+  logoA: { fontSize: 18, fontWeight: 800, color: "#f1f5f9", letterSpacing: 1, fontFamily: F },
+  logoB: { fontSize: 18, fontWeight: 800, color: "#60a5fa", letterSpacing: 1, fontFamily: F },
+  headerTabs: { flex: 1, display: "flex", justifyContent: "center", gap: 4 },
+  headerTab: { background: "none", border: "none", color: "#475569", padding: "6px 18px", cursor: "pointer", fontSize: 12, fontWeight: 600, letterSpacing: 1, fontFamily: F, borderRadius: 6 },
+  headerTabActive: { background: "#1e2d3d", color: "#e2e8f0" },
+  headerRight: { display: "flex", alignItems: "center", gap: 12 },
+  headerUser: { fontSize: 13, color: "#64748b", fontWeight: 500 },
+  ghostBtn: { background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 500, fontFamily: F, borderRadius: 6 },
+  pageWrap: { display: "flex", gap: 16, maxWidth: 1100, margin: "28px auto", padding: "0 16px", alignItems: "flex-start" },
+  leaderWrap: { flex: 1, minWidth: 0, background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10 },
+  panelHead: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1e2d3d" },
+  panelTitle: { fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#60a5fa" },
+  modeToggle: { display: "flex", gap: 4 },
+  modeBtn: { background: "none", border: "1px solid #1e2d3d", color: "#475569", padding: "5px 14px", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: F, borderRadius: 6 },
+  modeBtnActive: { background: "#1e2d3d", borderColor: "#60a5fa", color: "#60a5fa" },
+  lbTable: { padding: "8px 0" },
+  lbHeaderRow: { display: "flex", alignItems: "center", gap: 12, padding: "8px 20px", fontSize: 11, fontWeight: 600, color: "#334155", letterSpacing: 1, borderBottom: "1px solid #1a2535" },
+  lbRow: { display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", cursor: "pointer", borderBottom: "1px solid #131d2e", transition: "background 0.1s" },
+  rank: { width: 36, fontSize: 13, fontWeight: 700 },
+  lbTitleText: { flex: 1, fontSize: 15, fontWeight: 500, color: "#cbd5e1" },
+  sidebar: { width: 270, display: "flex", flexDirection: "column", gap: 12 },
+  card: { background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10, padding: 18 },
+  cardLabel: { fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 12 },
+  input: { width: "100%", background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "9px 12px", fontSize: 13, marginBottom: 10, fontFamily: F, borderRadius: 6, outline: "none" },
+  primaryBtn: { width: "100%", background: "#3b82f6", border: "none", color: "#fff", padding: "10px", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6 },
+  userRow: { display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #1a2535" },
+  userName: { fontSize: 13, color: "#94a3b8", fontWeight: 500 },
+  userCount: { fontSize: 12, color: "#334155" },
+  subcatPage: { maxWidth: 1100, margin: "0 auto", padding: "28px 16px" },
+  subcatPageHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 },
+  subcatCatBlock: { marginBottom: 32 },
+  subcatCatLabel: { fontSize: 11, fontWeight: 700, letterSpacing: 3, color: "#60a5fa", marginBottom: 12 },
+  subcatCardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 },
+  subcatCard: { background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 8, padding: 14, cursor: "pointer" },
+  subcatCardLabel: { fontSize: 14, fontWeight: 600, color: "#e2e8f0", marginBottom: 2 },
+  subcatCardWeight: { fontSize: 11, color: "#475569", marginBottom: 10 },
+  subcatEmpty: { fontSize: 12, color: "#334155", padding: "8px 0" },
+  subcatMiniRow: { display: "flex", alignItems: "center", gap: 8, padding: "3px 0" },
+  subcatMiniTitle: { flex: 1, fontSize: 12, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  subcatCardFooter: { fontSize: 11, color: "#334155", marginTop: 8, textAlign: "right" },
+  adminPage: { maxWidth: 900, margin: "28px auto", padding: "0 16px", display: "flex", flexDirection: "column", gap: 16 },
+  noAdmin: { color: "#64748b", textAlign: "center", padding: 40, fontSize: 15 },
+  adminHint: { fontSize: 13, color: "#475569", marginBottom: 16, lineHeight: 1.5 },
+  applicGrid: { display: "flex", flexDirection: "column", gap: 8 },
+  applicCard: { background: "#0b1118", border: "1px solid #1e2d3d", borderRadius: 8 },
+  applicHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", cursor: "pointer" },
+  applicTitle: { fontSize: 14, fontWeight: 600, color: "#cbd5e1" },
+  applicBody: { padding: "0 16px 16px" },
+  applicCatLabel: { fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 6 },
+  applicRow: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" },
+  applicSubLabel: { fontSize: 13, color: "#94a3b8" },
+  pendingRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a2535" },
+  pendingTitle: { fontSize: 14, color: "#cbd5e1", fontWeight: 500 },
+  pendingMeta: { fontSize: 11, color: "#475569", marginTop: 2 },
+  approveBtn: { background: "#14532d", border: "1px solid #166534", color: "#4ade80", padding: "5px 12px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 5 },
+  rejectBtn: { background: "#450a0a", border: "1px solid #7f1d1d", color: "#f87171", padding: "5px 12px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 5 },
+  editDotBtn: { background: "none", border: "1px solid #1e2d3d", color: "#475569", width: 26, height: 26, cursor: "pointer", fontSize: 13, borderRadius: 4, fontFamily: F },
+  sheetTitleBlock: { flex: 1, display: "flex", alignItems: "baseline", gap: 8 },
+  metaRow: { display: "flex", gap: 24, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", flexWrap: "wrap" },
+  metaGroup: { display: "flex", flexDirection: "column", gap: 5 },
+  metaLabel: { fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa" },
+  catSummaryRow: { display: "flex", borderBottom: "1px solid #1e2d3d" },
+  catSummaryCard: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "14px 8px", gap: 3, borderRight: "1px solid #1e2d3d" },
+  catSummaryLabel: { fontSize: 9, fontWeight: 700, letterSpacing: 2, color: "#475569" },
+  catGrid: { display: "grid", gridTemplateColumns: "1fr 1fr" },
+  catBlock: { borderRight: "1px solid #1e2d3d", borderBottom: "1px solid #1e2d3d" },
+  catBlockHead: { display: "flex", justifyContent: "space-between", padding: "10px 18px", background: "#0b1118", borderBottom: "1px solid #1e2d3d" },
+  catBlockTitle: { fontSize: 10, fontWeight: 700, letterSpacing: 3, color: "#60a5fa" },
+  subTable: { padding: "8px 18px 14px" },
+  subTableHead: { display: "flex", alignItems: "center", gap: 8, fontSize: 10, fontWeight: 600, color: "#334155", letterSpacing: 1, padding: "5px 0", borderBottom: "1px solid #1a2535", marginBottom: 4 },
+  subRow: { display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #0f1a2a" },
+  numInput: { width: 75, background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "5px 6px", fontSize: 13, textAlign: "center", fontFamily: F, borderRadius: 5, outline: "none" },
+  loginCard: { width: 360, background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 12, padding: 32, display: "flex", flexDirection: "column" },
+};
