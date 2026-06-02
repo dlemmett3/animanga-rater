@@ -432,6 +432,8 @@ export default function App() {
   const [inviteCode, setInviteCode] = useState("");
   const [activeTitle, setActiveTitle]   = useState(null);
   const [activeSubcat, setActiveSubcat] = useState(null);
+  const [viewingUser, setViewingUser]   = useState(null); // { username, userId }
+  const [comparingTitle, setComparingTitle] = useState(null); // title string for side-by-side
   const [lbMode, setLbMode]         = useState("combined");
   const [mainTab, setMainTab]       = useState("leaderboard");
   const [toast, setToast]           = useState(null);
@@ -680,6 +682,48 @@ export default function App() {
   );
   if (view === "login") return <LoginScreen form={loginForm} setForm={setLoginForm} onSubmit={handleLogin} loading={loading} />;
 
+  if (view === "main" && viewingUser && comparingTitle) return (
+    <TitleComparison
+      title={comparingTitle}
+      myData={myRatingFor(comparingTitle)?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} }}
+      theirData={allRatings.find(r => r.user_id === viewingUser.userId && r.title === comparingTitle)?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} }}
+      applicability={applicability[comparingTitle] || {}}
+      myUsername={session?.username}
+      theirUsername={viewingUser.username}
+      onBack={() => setComparingTitle(null)}
+    />
+  );
+
+  if (view === "main" && viewingUser && activeTitle) return (
+    <UserRatingSheet
+      title={activeTitle}
+      data={allRatings.find(r => r.user_id === viewingUser.userId && r.title === activeTitle)?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} }}
+      applicability={applicability[activeTitle] || {}}
+      username={viewingUser.username}
+      myData={myRatingFor(activeTitle)?.data}
+      onBack={() => setActiveTitle(null)}
+      onCompare={() => setComparingTitle(activeTitle)}
+    />
+  );
+
+  if (view === "main" && viewingUser) return (
+    <UserProfile
+      user={viewingUser}
+      titles={titles}
+      allRatings={allRatings}
+      applicability={applicability}
+      myUserId={session?.userId}
+      myUsername={session?.username}
+      onBack={() => { setViewingUser(null); setActiveTitle(null); }}
+      onViewTitle={(title) => setActiveTitle(title)}
+      onCompareAll={() => setComparingTitle("__all__")}
+      lbMode={lbMode}
+      setLbMode={setLbMode}
+    />
+  );
+
+  if (view === "main" && comparingTitle === "__all__" && viewingUser === null) return null;
+
   if (view === "main" && activeTitle) return (
     <RatingSheet title={activeTitle}
       data={myRatingFor(activeTitle)?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} }}
@@ -805,9 +849,13 @@ export default function App() {
               <div style={S.cardLabel}>USERS</div>
               {profiles.map(p => {
                 const count = allRatings.filter(r => r.user_id === p.id).length;
+                const isMe = p.id === session?.userId;
                 return (
-                  <div key={p.id} style={S.userRow}>
-                    <span style={S.userName}>{p.username}{p.is_admin ? " ★" : ""}</span>
+                  <div key={p.id} style={{ ...S.userRow, cursor: isMe ? "default" : "pointer" }}
+                    onClick={() => !isMe && setViewingUser({ username: p.username, userId: p.id })}>
+                    <span style={{ ...S.userName, color: isMe ? "#60a5fa" : "#94a3b8" }}>
+                      {p.username}{p.is_admin ? " ★" : ""}{isMe ? " (you)" : ""}
+                    </span>
                     <span style={S.userCount}>{count} rated</span>
                   </div>
                 );
@@ -1574,3 +1622,265 @@ const S = {
   thCell: { padding: "8px 6px", background: "#0b1118", color: "#475569", fontWeight: 600, letterSpacing: 1, textAlign: "center", borderBottom: "2px solid #1e2d3d", borderRight: "1px solid #1a2535", whiteSpace: "normal", width: 80, minWidth: 80 },
   tdCell: { padding: "6px", borderBottom: "1px solid #0f1a2a", borderRight: "1px solid #0f1a2a", textAlign: "center", width: 80, minWidth: 80 },
 };
+
+// ─── USER PROFILE ─────────────────────────────────────────────────────────────
+function UserProfile({ user, titles, allRatings, applicability, myUserId, myUsername, onBack, onViewTitle, lbMode, setLbMode }) {
+  const F = "'Inter', system-ui, sans-serif";
+
+  const getRows = () => titles.map(({ title }) => {
+    const titleApp = applicability[title] || {};
+    const theirRating = allRatings.find(r => r.user_id === user.userId && r.title === title);
+    const myRating = allRatings.find(r => r.user_id === myUserId && r.title === title);
+    const theirScore = theirRating ? calcFinalScore(theirRating.data?.scores, titleApp) : null;
+    const myScore = myRating ? calcFinalScore(myRating.data?.scores, titleApp) : null;
+    const divergence = theirScore !== null && myScore !== null ? myScore - theirScore : null;
+    const theirStatus = theirRating?.data?.status || null;
+    return { title, theirScore, myScore, divergence, theirStatus, ratedBy: theirScore !== null ? 1 : 0 };
+  }).sort((a, b) => {
+    if (a.theirScore === null && b.theirScore === null) return 0;
+    if (a.theirScore === null) return 1;
+    if (b.theirScore === null) return -1;
+    return b.theirScore - a.theirScore;
+  });
+
+  const rows = getRows();
+  const ratedCount = rows.filter(r => r.theirScore !== null).length;
+  const avgScore = ratedCount > 0
+    ? rows.filter(r => r.theirScore !== null).reduce((s, r) => s + r.theirScore, 0) / ratedCount
+    : null;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", background: "#0b1118", position: "sticky", top: 0, zIndex: 100 }}>
+        <button style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }} onClick={onBack}>← Back</button>
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: "#f1f5f9" }}>{user.username}</span>
+          <span style={{ fontSize: 13, color: "#475569", marginLeft: 12 }}>{ratedCount} titles rated</span>
+          {avgScore !== null && <span style={{ fontSize: 13, color: scoreColor(avgScore), marginLeft: 12, fontWeight: 700 }}>avg {avgScore.toFixed(2)}</span>}
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 900, margin: "28px auto", padding: "0 16px" }}>
+        <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1e2d3d" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#60a5fa" }}>{user.username.toUpperCase()}'S RANKINGS</span>
+          </div>
+          <div style={{ padding: "8px 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 20px", fontSize: 11, fontWeight: 600, color: "#334155", letterSpacing: 1, borderBottom: "1px solid #1a2535" }}>
+              <span style={{ width: 36 }}>#</span>
+              <span style={{ flex: 1 }}>Title</span>
+              <span style={{ width: 100 }}>Status</span>
+              <span style={{ width: 80, textAlign: "right" }}>Score</span>
+              <span style={{ width: 70, textAlign: "right" }}>Mine</span>
+              <span style={{ width: 70, textAlign: "right" }}>Diff</span>
+            </div>
+            {rows.map((row, i) => (
+              <div key={row.title}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", borderBottom: "1px solid #131d2e", cursor: row.theirScore !== null ? "pointer" : "default" }}
+                onClick={() => row.theirScore !== null && onViewTitle(row.title)}>
+                <span style={{ width: 36, fontSize: 13, fontWeight: 700, color: row.theirScore !== null ? (i < 3 ? ["#f59e0b","#94a3b8","#cd7c3a"][i] : "#475569") : "#1e2d3d" }}>{row.theirScore !== null ? i + 1 : "—"}</span>
+                <span style={{ flex: 1, fontSize: 15, fontWeight: 500, color: row.theirScore !== null ? "#cbd5e1" : "#334155" }}>{row.title}</span>
+                <span style={{ width: 100 }}>
+                  {row.theirStatus && (
+                    <span style={{ fontSize: 10, fontWeight: 600, color: STATUS_COLORS[row.theirStatus], background: `${STATUS_COLORS[row.theirStatus]}18`, padding: "2px 8px", borderRadius: 20 }}>
+                      {row.theirStatus}
+                    </span>
+                  )}
+                </span>
+                <span style={{ width: 80, textAlign: "right", fontSize: 18, fontWeight: 700, color: scoreColor(row.theirScore) }}>
+                  {row.theirScore !== null ? row.theirScore.toFixed(2) : <span style={{ color: "#334155" }}>—</span>}
+                </span>
+                <span style={{ width: 70, textAlign: "right", fontSize: 12, color: scoreColor(row.myScore) }}>
+                  {row.myScore !== null ? row.myScore.toFixed(1) : "—"}
+                </span>
+                <span style={{ width: 70, textAlign: "right", fontSize: 12, fontWeight: Math.abs(row.divergence || 0) > 2 ? 700 : 400,
+                  color: row.divergence !== null ? (row.divergence > 0 ? "#34d399" : "#f87171") : "#334155" }}>
+                  {row.divergence !== null ? `${row.divergence > 0 ? "+" : ""}${row.divergence.toFixed(1)}` : "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── USER RATING SHEET (read-only) ────────────────────────────────────────────
+function UserRatingSheet({ title, data, applicability, username, myData, onBack, onCompare }) {
+  const F = "'Inter', system-ui, sans-serif";
+  const scores = data.scores || {};
+  const applic = applicability || {};
+  const finalScore = calcFinalScore(scores, applic);
+  const myFinalScore = myData ? calcFinalScore(myData.scores, applic) : null;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", background: "#0b1118", position: "sticky", top: 0, zIndex: 100 }}>
+        <button style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }} onClick={onBack}>← Back</button>
+        <div style={{ flex: 1, display: "flex", alignItems: "baseline", gap: 12 }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: "#f1f5f9" }}>{title}</span>
+          <span style={{ fontSize: 13, color: "#475569" }}>rated by {username}</span>
+          {finalScore !== null && <span style={{ fontSize: 24, fontWeight: 800, color: scoreColor(finalScore), marginLeft: 8 }}>{finalScore.toFixed(3)}</span>}
+          {myFinalScore !== null && <span style={{ fontSize: 13, color: "#475569" }}>· yours: <span style={{ color: scoreColor(myFinalScore), fontWeight: 700 }}>{myFinalScore.toFixed(2)}</span></span>}
+        </div>
+        {myData && (
+          <button style={{ background: "#1e2d3d", border: "1px solid #3b82f6", color: "#60a5fa", padding: "7px 16px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: F, borderRadius: 6 }}
+            onClick={onCompare}>⇄ Compare</button>
+        )}
+      </div>
+
+      {/* Meta */}
+      <div style={{ display: "flex", gap: 24, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", flexWrap: "wrap" }}>
+        {data.version && <div><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 4 }}>VERSION</div><div style={{ fontSize: 13, color: "#94a3b8" }}>{data.version}</div></div>}
+        {data.status && <div><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 4 }}>STATUS</div>
+          <span style={{ fontSize: 11, fontWeight: 600, color: STATUS_COLORS[data.status], background: `${STATUS_COLORS[data.status]}18`, padding: "3px 10px", borderRadius: 20 }}>{data.status}</span></div>}
+        {data.notes && <div style={{ flex: 1, minWidth: 200 }}><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 4 }}>NOTES</div><div style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.5 }}>{data.notes}</div></div>}
+      </div>
+
+      {/* Cat summary */}
+      <div style={{ display: "flex", borderBottom: "1px solid #1e2d3d" }}>
+        {CATEGORIES.map(cat => {
+          const cs = calcCategoryScore(cat, scores, applic);
+          const myCs = myData ? calcCategoryScore(cat, myData.scores, applic) : null;
+          return (
+            <div key={cat} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "14px 8px", gap: 3, borderRight: "1px solid #1e2d3d" }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, color: "#475569" }}>{cat.toUpperCase()}</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: cs !== null ? scoreColor(cs) : "#334155" }}>{cs !== null ? cs.toFixed(2) : "—"}</span>
+              {myCs !== null && <span style={{ fontSize: 11, color: "#475569" }}>you: <span style={{ color: scoreColor(myCs) }}>{myCs.toFixed(1)}</span></span>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Subcategory grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+        {CATEGORIES.map(cat => (
+          <div key={cat} style={{ borderRight: "1px solid #1e2d3d", borderBottom: "1px solid #1e2d3d" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 18px", background: "#0b1118", borderBottom: "1px solid #1e2d3d" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 3, color: "#60a5fa" }}>{cat.toUpperCase()}</span>
+            </div>
+            <div style={{ padding: "8px 18px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, fontWeight: 600, color: "#334155", padding: "5px 0", borderBottom: "1px solid #1a2535", marginBottom: 4 }}>
+                <span style={{ flex: 1 }}>Subcategory</span>
+                <span style={{ width: 70, textAlign: "center" }}>{username}</span>
+                <span style={{ width: 70, textAlign: "center" }}>Mine</span>
+                <span style={{ width: 44, textAlign: "center" }}>Wt</span>
+              </div>
+              {SUBCATEGORIES[cat].map(s => {
+                const app = applic?.[cat]?.[s.key] ?? 1;
+                const sc = scores?.[cat]?.[s.key];
+                const mySc = myData?.scores?.[cat]?.[s.key];
+                const diff = (sc !== undefined && sc !== null && mySc !== undefined && mySc !== null)
+                  ? Number(sc) - Number(mySc) : null;
+                const noteKey = `${cat}:${s.key}`;
+                const note = data.subcatNotes?.[noteKey];
+                return (
+                  <div key={s.key}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #0f1a2a" }}>
+                      <span style={{ flex: 1, fontSize: 13, color: app === 0 ? "#334155" : "#cbd5e1" }}>{s.label}{app < 1 && app > 0 ? <span style={{ fontSize: 10, color: "#fb923c", marginLeft: 4 }}>{app}x</span> : null}</span>
+                      <span style={{ width: 70, textAlign: "center", fontSize: 13, fontWeight: 700, color: scoreColor(sc !== undefined ? Number(sc) : null) }}>
+                        {sc !== undefined && sc !== null ? Number(sc) : <span style={{ color: "#334155" }}>—</span>}
+                      </span>
+                      <span style={{ width: 70, textAlign: "center", fontSize: 13, color: scoreColor(mySc !== undefined ? Number(mySc) : null) }}>
+                        {mySc !== undefined && mySc !== null ? Number(mySc) : <span style={{ color: "#1e2d3d" }}>—</span>}
+                      </span>
+                      <span style={{ width: 44, textAlign: "center", fontSize: 11, color: "#475569" }}>{(s.weight*100).toFixed(0)}%</span>
+                    </div>
+                    {note && (
+                      <div style={{ padding: "3px 8px 6px", background: "#0b1118", fontSize: 11, color: "#64748b", fontStyle: "italic", lineHeight: 1.4 }}>{note}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── TITLE COMPARISON ─────────────────────────────────────────────────────────
+function TitleComparison({ title, myData, theirData, applicability, myUsername, theirUsername, onBack }) {
+  const F = "'Inter', system-ui, sans-serif";
+  const applic = applicability || {};
+  const myScores = myData.scores || {};
+  const theirScores = theirData.scores || {};
+  const myFinal = calcFinalScore(myScores, applic);
+  const theirFinal = calcFinalScore(theirScores, applic);
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", background: "#0b1118", position: "sticky", top: 0, zIndex: 100 }}>
+        <button style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }} onClick={onBack}>← Back</button>
+        <div style={{ flex: 1, textAlign: "center" }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: "#f1f5f9" }}>{title}</span>
+          <span style={{ fontSize: 13, color: "#475569", marginLeft: 12 }}>comparison</span>
+        </div>
+      </div>
+
+      {/* Final score comparison */}
+      <div style={{ display: "flex", borderBottom: "1px solid #1e2d3d" }}>
+        {[{ username: myUsername, final: myFinal, scores: myScores }, { username: theirUsername, final: theirFinal, scores: theirScores }].map((u, i) => (
+          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 8px", borderRight: i === 0 ? "1px solid #1e2d3d" : "none" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#475569", marginBottom: 6 }}>{u.username.toUpperCase()}</span>
+            <span style={{ fontSize: 32, fontWeight: 800, color: scoreColor(u.final) }}>{u.final !== null ? u.final.toFixed(3) : "—"}</span>
+            <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
+              {CATEGORIES.map(cat => {
+                const cs = calcCategoryScore(cat, u.scores, applic);
+                return (
+                  <div key={cat} style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: "#475569", letterSpacing: 1 }}>{cat.slice(0,3).toUpperCase()}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: scoreColor(cs) }}>{cs !== null ? cs.toFixed(1) : "—"}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Subcategory comparison */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+        {CATEGORIES.map(cat => (
+          <div key={cat} style={{ borderRight: "1px solid #1e2d3d", borderBottom: "1px solid #1e2d3d" }}>
+            <div style={{ padding: "10px 18px", background: "#0b1118", borderBottom: "1px solid #1e2d3d" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 3, color: "#60a5fa" }}>{cat.toUpperCase()}</span>
+            </div>
+            <div style={{ padding: "8px 18px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, fontWeight: 600, color: "#334155", padding: "5px 0", borderBottom: "1px solid #1a2535", marginBottom: 4 }}>
+                <span style={{ flex: 1 }}>Subcategory</span>
+                <span style={{ width: 55, textAlign: "center" }}>{myUsername.slice(0,6)}</span>
+                <span style={{ width: 55, textAlign: "center" }}>{theirUsername.slice(0,6)}</span>
+                <span style={{ width: 44, textAlign: "center" }}>Diff</span>
+              </div>
+              {SUBCATEGORIES[cat].map(s => {
+                const app = applic?.[cat]?.[s.key] ?? 1;
+                const mySc = myScores?.[cat]?.[s.key];
+                const theirSc = theirScores?.[cat]?.[s.key];
+                const diff = (mySc !== undefined && mySc !== null && theirSc !== undefined && theirSc !== null)
+                  ? Number(mySc) - Number(theirSc) : null;
+                return (
+                  <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #0f1a2a" }}>
+                    <span style={{ flex: 1, fontSize: 12, color: app === 0 ? "#334155" : "#cbd5e1" }}>{s.label}</span>
+                    <span style={{ width: 55, textAlign: "center", fontSize: 13, fontWeight: 700, color: scoreColor(mySc !== undefined ? Number(mySc) : null) }}>
+                      {mySc !== undefined && mySc !== null ? Number(mySc) : <span style={{ color: "#334155" }}>—</span>}
+                    </span>
+                    <span style={{ width: 55, textAlign: "center", fontSize: 13, fontWeight: 700, color: scoreColor(theirSc !== undefined ? Number(theirSc) : null) }}>
+                      {theirSc !== undefined && theirSc !== null ? Number(theirSc) : <span style={{ color: "#334155" }}>—</span>}
+                    </span>
+                    <span style={{ width: 44, textAlign: "center", fontSize: 12, fontWeight: Math.abs(diff || 0) >= 2 ? 700 : 400,
+                      color: diff !== null ? (diff > 0 ? "#34d399" : diff < 0 ? "#f87171" : "#475569") : "#1e2d3d" }}>
+                      {diff !== null ? (diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)) : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
