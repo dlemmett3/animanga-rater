@@ -1650,7 +1650,7 @@ function UserProfile({ user, titles, allRatings, applicability, myUserId, myUser
     : null;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F }}>
+    <div style={{ minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F, margin: 0, padding: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", background: "#0b1118", position: "sticky", top: 0, zIndex: 100 }}>
         <button style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }} onClick={onBack}>← Back</button>
         <div style={{ flex: 1 }}>
@@ -1661,8 +1661,8 @@ function UserProfile({ user, titles, allRatings, applicability, myUserId, myUser
       </div>
 
       <div style={{ maxWidth: 1100, margin: "28px auto", padding: "0 28px" }}>
-        <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1e2d3d" }}>
+        <div style={{ background: "transparent", border: "none", borderRadius: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 12px 0" }}>
             <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#60a5fa" }}>{user.username.toUpperCase()}'S RANKINGS</span>
           </div>
           <div style={{ padding: "8px 0" }}>
