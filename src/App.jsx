@@ -410,7 +410,7 @@ function scoreColor(s) {
 
 const fontStyle = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-  * { box-sizing: border-box; } body { margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; } body { margin: 0; background: #0f1623; }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: #1e2533; }
   ::-webkit-scrollbar-thumb { background: #3a4560; border-radius: 3px; }
