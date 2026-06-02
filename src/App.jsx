@@ -1660,7 +1660,7 @@ function UserProfile({ user, titles, allRatings, applicability, myUserId, myUser
         </div>
       </div>
 
-      <div style={{ maxWidth: 900, margin: "28px auto", padding: "0 16px" }}>
+      <div style={{ maxWidth: 1100, margin: "28px auto", padding: "0 28px" }}>
         <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1e2d3d" }}>
             <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#60a5fa" }}>{user.username.toUpperCase()}'S RANKINGS</span>
