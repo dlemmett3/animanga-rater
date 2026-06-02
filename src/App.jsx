@@ -1650,8 +1650,8 @@ function UserProfile({ user, titles, allRatings, applicability, myUserId, myUser
     : null;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F, margin: 0, padding: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", background: "#0b1118", position: "sticky", top: 0, zIndex: 100 }}>
+    <div style={{ minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F, margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", background: "#0b1118", position: "sticky", top: 0, zIndex: 100, margin: 0 }}>
         <button style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }} onClick={onBack}>← Back</button>
         <div style={{ flex: 1 }}>
           <span style={{ fontSize: 18, fontWeight: 800, color: "#f1f5f9" }}>{user.username}</span>
@@ -1660,13 +1660,13 @@ function UserProfile({ user, titles, allRatings, applicability, myUserId, myUser
         </div>
       </div>
 
-      <div style={{ maxWidth: 1100, margin: "28px auto", padding: "0 28px" }}>
+      <div style={{ padding: "0" }}>
         <div style={{ background: "transparent", border: "none", borderRadius: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 12px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 28px 12px 28px", borderBottom: "1px solid #1e2d3d" }}>
             <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#60a5fa" }}>{user.username.toUpperCase()}'S RANKINGS</span>
           </div>
           <div style={{ padding: "8px 0" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 20px", fontSize: 11, fontWeight: 600, color: "#334155", letterSpacing: 1, borderBottom: "1px solid #1a2535" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 28px", fontSize: 11, fontWeight: 600, color: "#334155", letterSpacing: 1, borderBottom: "1px solid #1a2535" }}>
               <span style={{ width: 36 }}>#</span>
               <span style={{ flex: 1 }}>Title</span>
               <span style={{ width: 100 }}>Status</span>
@@ -1676,7 +1676,7 @@ function UserProfile({ user, titles, allRatings, applicability, myUserId, myUser
             </div>
             {rows.map((row, i) => (
               <div key={row.title}
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", borderBottom: "1px solid #131d2e", cursor: row.theirScore !== null ? "pointer" : "default" }}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 28px", borderBottom: "1px solid #1a2535", cursor: row.theirScore !== null ? "pointer" : "default" }}
                 onClick={() => row.theirScore !== null && onViewTitle(row.title)}>
                 <span style={{ width: 36, fontSize: 13, fontWeight: 700, color: row.theirScore !== null ? (i < 3 ? ["#f59e0b","#94a3b8","#cd7c3a"][i] : "#475569") : "#1e2d3d" }}>{row.theirScore !== null ? i + 1 : "—"}</span>
                 <span style={{ flex: 1, fontSize: 15, fontWeight: 500, color: row.theirScore !== null ? "#cbd5e1" : "#334155" }}>{row.title}</span>
