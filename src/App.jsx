@@ -12,30 +12,71 @@ const SUBCATEGORIES = {
     { key: "intro",      label: "Intro",               weight: 0.10 },
   ],
   Character: [
-    { key: "protagonist",   label: "Protagonist",      weight: 0.25 },
-    { key: "antag_primary",  label: "Primary Antagonists",  weight: 0.15 },
-    { key: "antag_secondary", label: "Secondary Antagonists", weight: 0.05 },
-    { key: "dynamics",      label: "Dynamics",         weight: 0.18 },
-    { key: "development",   label: "Development",      weight: 0.17 },
-    { key: "sidecast",      label: "Side Cast",        weight: 0.10 },
-    { key: "deuteragonist", label: "Deuteragonist(s)", weight: 0.10 },
+    { key: "protagonist",     label: "Protagonist",            weight: 0.25 },
+    { key: "antag_primary",   label: "Primary Antagonists",    weight: 0.20 },
+    { key: "maincast",        label: "Main Cast",              weight: 0.16 },
+    { key: "deuteragonist",   label: "Deuteragonist(s)",       weight: 0.12 },
+    { key: "dynamics",        label: "Dynamics",               weight: 0.08 },
+    { key: "sidecast",        label: "Side Cast",              weight: 0.07 },
+    { key: "development",     label: "Development",            weight: 0.07 },
+    { key: "antag_secondary", label: "Secondary Antagonists",  weight: 0.05 },
   ],
   Writing: [
     { key: "themes",    label: "Themes/Philosophy",  weight: 0.30 },
     { key: "emotion",   label: "Emotion",            weight: 0.30 },
-    { key: "dialogue",  label: "Dialogue/Monologue", weight: 0.18 },
-    { key: "cohesion",  label: "Narrative Cohesion", weight: 0.14 },
+    { key: "cohesion",  label: "Narrative Cohesion", weight: 0.18 },
+    { key: "dialogue",  label: "Dialogue/Monologue", weight: 0.14 },
     { key: "symbolism", label: "Symbolism",          weight: 0.08 },
   ],
   Technical: [
     { key: "visuals",    label: "Visuals",           weight: 0.28 },
-    { key: "direction",  label: "Direction/Framing", weight: 0.22 },
+    { key: "direction",  label: "Direction/Framing", weight: 0.26 },
     { key: "fights",     label: "Fights/Action",     weight: 0.15 },
-    { key: "chardesign", label: "Character Design",      weight: 0.13 },
     { key: "worldbuild", label: "Worldbuilding",     weight: 0.12 },
     { key: "music",      label: "Music/Sound",       weight: 0.10 },
+    { key: "chardesign", label: "Character Design",  weight: 0.09 },
   ],
 };
+
+// ─── ARC CONFIG ───────────────────────────────────────────────────────────────
+const ARC_CATEGORY_WEIGHTS = { Structure: 0.30, Character: 0.25, Writing: 0.30, Technical: 0.15 };
+
+const ARC_SUBCATEGORIES = {
+  Structure: [
+    { key: "plot",       label: "Plot",               weight: 0.25 },
+    { key: "climax",     label: "Climax/Peaks",        weight: 0.25 },
+    { key: "pacing",     label: "Pacing/Consistency",  weight: 0.20 },
+    { key: "conclusion", label: "Conclusion",          weight: 0.20 },
+    { key: "intro",      label: "Intro",               weight: 0.10 },
+  ],
+  Character: [
+    { key: "protagonist",     label: "Protagonist",            weight: 0.25 },
+    { key: "antag_primary",   label: "Primary Antagonists",    weight: 0.20 },
+    { key: "maincast",        label: "Main Cast",              weight: 0.16 },
+    { key: "deuteragonist",   label: "Deuteragonist(s)",       weight: 0.12 },
+    { key: "dynamics",        label: "Dynamics",               weight: 0.08 },
+    { key: "sidecast",        label: "Side Cast",              weight: 0.07 },
+    { key: "development",     label: "Development",            weight: 0.07 },
+    { key: "antag_secondary", label: "Secondary Antagonists",  weight: 0.05 },
+  ],
+  Writing: [
+    { key: "themes",      label: "Themes/Philosophy",    weight: 0.30 },
+    { key: "emotion",     label: "Emotion",              weight: 0.30 },
+    { key: "cohesion",    label: "Arc Cohesion",         weight: 0.18 },
+    { key: "significance",label: "Narrative Significance",weight: 0.12 },
+    { key: "dialogue",    label: "Dialogue/Monologue",   weight: 0.10 },
+  ],
+  Technical: [
+    { key: "visuals",    label: "Visuals",           weight: 0.28 },
+    { key: "direction",  label: "Direction/Framing", weight: 0.26 },
+    { key: "fights",     label: "Fights/Action",     weight: 0.15 },
+    { key: "worldbuild", label: "Worldbuilding",     weight: 0.12 },
+    { key: "music",      label: "Music/Sound",       weight: 0.10 },
+    { key: "chardesign", label: "Character Design",  weight: 0.09 },
+  ],
+};
+
+const ARC_CATEGORIES = Object.keys(ARC_SUBCATEGORIES);
 
 const CATEGORIES = Object.keys(SUBCATEGORIES);
 const ALL_SUBCATS = CATEGORIES.flatMap(cat => SUBCATEGORIES[cat].map(s => ({ ...s, cat })));
@@ -120,6 +161,13 @@ const ANCHORS = {
       { range: "10-13", desc: "Noticeable development that lands but lacks the depth or consistency to be truly resonant" },
       { range: "6-9",   desc: "Surface-level or inconsistent development — change happens but feels unearned or quickly abandoned" },
       { range: "0-5",   desc: "No meaningful development, or regression so poorly handled it damages the character" },
+    ],
+    maincast: [
+      { range: "18-20", desc: "A main cast where every member feels essential — their individual arcs, relationships, and contributions are so load-bearing that removing any one would collapse something important in the work" },
+      { range: "14-17", desc: "A strong main cast with distinct identities and meaningful contributions to the narrative — the work is clearly richer for having them" },
+      { range: "10-13", desc: "A functional main cast that serves the story without any member being particularly irreplaceable or deeply characterized" },
+      { range: "6-9",   desc: "A main cast that feels interchangeable or underdeveloped relative to the narrative weight they're expected to carry" },
+      { range: "0-5",   desc: "A main cast so poorly realized they actively undermine the protagonist's story" },
     ],
     sidecast: [
       { range: "18-20", desc: "A side cast where even minor characters feel fully realized — collectively they expand the world, reinforce themes, and create a sense the story exists beyond its leads" },
@@ -373,6 +421,50 @@ async function upsertApplicability(token, title, data) {
 }
 async function fetchProfiles(token) { return await sbFetch("profiles?select=*", "GET", null, token) || []; }
 async function upsertProfile(token, userId, username, isAdmin) { await sbFetch("profiles?on_conflict=id", "POST", { id: userId, username, is_admin: isAdmin }, token); }
+
+// ─── ARC DB FUNCTIONS ─────────────────────────────────────────────────────────
+async function fetchArcs(token) { return await sbFetch("arcs?select=*&order=created_at.asc", "GET", null, token) || []; }
+async function addArcPending(token, title, arcName, suggestedBy) { await sbFetch("arcs", "POST", { title, arc_name: arcName, approved: false, suggested_by: suggestedBy }, token); }
+async function approveArc(token, id) { await sbFetch(`arcs?id=eq.${id}`, "PATCH", { approved: true }, token); }
+async function deleteArc(token, id) { await sbFetch(`arcs?id=eq.${id}`, "DELETE", null, token); }
+async function fetchAllArcRatings(token) { return await sbFetch("arc_ratings?select=*", "GET", null, token) || []; }
+async function upsertArcRating(token, userId, username, arcId, data) {
+  const activeToken = token || _getToken() || SUPABASE_ANON_KEY;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/arc_ratings?on_conflict=user_id,arc_id`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${activeToken}`,
+      "Prefer": "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify({ user_id: userId, username, arc_id: arcId, data }),
+  });
+  if (res.status === 401) {
+    try {
+      const saved = localStorage.getItem("animanga_session");
+      if (saved) {
+        const sess = JSON.parse(saved);
+        if (sess.refreshToken) {
+          const refreshRes = await refreshSession(sess.refreshToken);
+          if (refreshRes.access_token) {
+            const newSess = { ...sess, token: refreshRes.access_token, refreshToken: refreshRes.refresh_token, expiresAt: Date.now() + (refreshRes.expires_in || 3600) * 1000 };
+            localStorage.setItem("animanga_session", JSON.stringify(newSess));
+            _setToken(refreshRes.access_token);
+            const retry = await fetch(`${SUPABASE_URL}/rest/v1/arc_ratings?on_conflict=user_id,arc_id`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${refreshRes.access_token}`, "Prefer": "resolution=merge-duplicates,return=representation" },
+              body: JSON.stringify({ user_id: userId, username, arc_id: arcId, data }),
+            });
+            if (!retry.ok) throw new Error(await retry.text());
+            return;
+          }
+        }
+      }
+    } catch (e) { throw e; }
+  }
+  if (!res.ok) throw new Error(await res.text());
+}
 async function fetchInviteCode(token) {
   const rows = await sbFetch("settings?key=eq.invite_code&select=*", "GET", null, token) || [];
   return rows[0]?.value || null;
@@ -382,8 +474,9 @@ async function saveInviteCode(token, code) {
 }
 
 // ─── MATH ─────────────────────────────────────────────────────────────────────
-function calcCategoryScore(cat, scores, applicability) {
-  const subs = SUBCATEGORIES[cat];
+function calcCategoryScore(cat, scores, applicability, subcatConfig) {
+  const subs = (subcatConfig || SUBCATEGORIES)[cat];
+  if (!subs) return null;
   let wSum = 0, wScoreSum = 0;
   for (const s of subs) {
     const app = applicability?.[cat]?.[s.key] ?? 1;
@@ -393,11 +486,13 @@ function calcCategoryScore(cat, scores, applicability) {
   }
   return wSum > 0 ? wScoreSum / wSum : null;
 }
-function calcFinalScore(scores, applicability) {
+function calcFinalScore(scores, applicability, catWeights, subcatConfig) {
+  const cw = catWeights || CATEGORY_WEIGHTS;
+  const sc = subcatConfig || SUBCATEGORIES;
   let wSum = 0, wScoreSum = 0;
-  for (const cat of CATEGORIES) {
-    const cs = calcCategoryScore(cat, scores, applicability);
-    if (cs !== null) { const w = CATEGORY_WEIGHTS[cat]; wScoreSum += cs * w; wSum += w; }
+  for (const cat of Object.keys(cw)) {
+    const cs = calcCategoryScore(cat, scores, applicability, sc);
+    if (cs !== null) { const w = cw[cat]; wScoreSum += cs * w; wSum += w; }
   }
   return wSum > 0 ? wScoreSum / wSum : null;
 }
@@ -433,8 +528,13 @@ export default function App() {
   const [inviteCode, setInviteCode] = useState("");
   const [activeTitle, setActiveTitle]   = useState(null);
   const [activeSubcat, setActiveSubcat] = useState(null);
-  const [viewingUser, setViewingUser]   = useState(null); // { username, userId }
-  const [comparingTitle, setComparingTitle] = useState(null); // title string for side-by-side
+  const [viewingUser, setViewingUser]   = useState(null);
+  const [comparingTitle, setComparingTitle] = useState(null);
+  const [arcs, setArcs]                 = useState([]);
+  const [pendingArcs, setPendingArcs]   = useState([]);
+  const [allArcRatings, setAllArcRatings] = useState([]);
+  const [activeArc, setActiveArc]       = useState(null); // { id, title, arc_name }
+  const [arcApplicability, setArcApplicability] = useState({});
   const [lbMode, setLbMode]         = useState("combined");
   const [mainTab, setMainTab]       = useState("leaderboard");
   const [toast, setToast]           = useState(null);
@@ -507,10 +607,11 @@ export default function App() {
 
   const loadAll = async (sess) => {
     try {
-      const [rawTitles, rawRatings, rawApplic, rawProfiles, code] = await Promise.all([
+      const [rawTitles, rawRatings, rawApplic, rawProfiles, code, rawArcs, rawArcRatings] = await Promise.all([
         fetchTitles(sess.token), fetchAllRatings(sess.token),
         fetchApplicability(sess.token), fetchProfiles(sess.token),
-        fetchInviteCode(sess.token),
+        fetchInviteCode(sess.token), fetchArcs(sess.token),
+        fetchAllArcRatings(sess.token),
       ]);
       setTitles(rawTitles.filter(t => t.approved).map(t => ({ id: t.id, title: t.title })));
       setPending(rawTitles.filter(t => !t.approved));
@@ -520,6 +621,9 @@ export default function App() {
       setApplicability(appMap);
       setProfiles(rawProfiles);
       setInviteCode(code || "");
+      setArcs(rawArcs.filter(a => a.approved).map(a => ({ id: a.id, title: a.title, arc_name: a.arc_name })));
+      setPendingArcs(rawArcs.filter(a => !a.approved));
+      setAllArcRatings(rawArcRatings);
     } catch { showToast("Failed to load data", "err"); }
   };
 
@@ -610,6 +714,57 @@ export default function App() {
     try { await deleteTitle(session.token, item.id); await loadAll(session); showToast("Rejected"); }
     catch { showToast("Failed", "err"); }
   };
+
+  const saveArcRating = async (arcId, data) => {
+    try {
+      await upsertArcRating(session.token, session.userId, session.username, arcId, data);
+      setAllArcRatings(prev => {
+        const filtered = prev.filter(r => !(r.user_id === session.userId && r.arc_id === arcId));
+        return [...filtered, { user_id: session.userId, username: session.username, arc_id: arcId, data }];
+      });
+      showToast("Saved");
+    } catch { showToast("Save failed", "err"); }
+  };
+
+  const submitArcSuggestion = async (titleName, arcName) => {
+    if (!arcName.trim()) return showToast("Enter an arc name", "err");
+    try {
+      await addArcPending(session.token, titleName, arcName.trim(), session.username);
+      await loadAll(session); showToast("Suggestion submitted");
+    } catch { showToast("Failed", "err"); }
+  };
+
+  const approveArcSuggestion = async (item) => {
+    try { await approveArc(session.token, item.id); await loadAll(session); showToast(`"${item.arc_name}" added`); }
+    catch { showToast("Failed", "err"); }
+  };
+
+  const rejectArcSuggestion = async (item) => {
+    try { await deleteArc(session.token, item.id); await loadAll(session); showToast("Rejected"); }
+    catch { showToast("Failed", "err"); }
+  };
+
+  const myArcRatingFor = (arcId) => allArcRatings.find(r => r.user_id === session?.userId && r.arc_id === arcId);
+
+  const getArcLeaderboard = () => arcs.map(arc => {
+    const arcRatings = allArcRatings.filter(r => r.arc_id === arc.id);
+    const userScores = arcRatings.map(r => {
+      const sc = calcFinalScore(r.data?.scores, {}, ARC_CATEGORY_WEIGHTS, ARC_SUBCATEGORIES);
+      return sc !== null ? { user: r.username, score: sc } : null;
+    }).filter(Boolean);
+    const combined = userScores.length ? userScores.reduce((s, x) => s + x.score, 0) / userScores.length : null;
+    const myData = myArcRatingFor(arc.id);
+    const myScore = myData ? calcFinalScore(myData.data?.scores, {}, ARC_CATEGORY_WEIGHTS, ARC_SUBCATEGORIES) : null;
+    const myStatus = myData?.data?.status || null;
+    const divergence = (combined !== null && myScore !== null) ? Math.abs(myScore - combined) : null;
+    return { ...arc, combined, myScore, myStatus, divergence, ratedBy: userScores.length };
+  }).sort((a, b) => {
+    const sa = lbMode === "combined" ? a.combined : a.myScore;
+    const sb = lbMode === "combined" ? b.combined : b.myScore;
+    if (sa === null && sb === null) return 0;
+    if (sa === null) return 1; if (sb === null) return -1;
+    return sb - sa;
+  });
 
   const handleExport = () => {
     const myRatings = allRatings.filter(r => r.user_id === session.userId);
@@ -725,6 +880,17 @@ export default function App() {
 
   if (view === "main" && comparingTitle === "__all__" && viewingUser === null) return null;
 
+  if (view === "main" && activeArc) return (
+    <ArcRatingSheet
+      arc={activeArc}
+      data={myArcRatingFor(activeArc.id)?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} }}
+      applicability={arcApplicability[activeArc.id] || {}}
+      onSave={(d) => saveArcRating(activeArc.id, d)}
+      onBack={() => setActiveArc(null)}
+      isAdmin={session?.isAdmin}
+    />
+  );
+
   if (view === "main" && activeTitle) return (
     <RatingSheet title={activeTitle}
       data={myRatingFor(activeTitle)?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} }}
@@ -754,10 +920,10 @@ export default function App() {
       <div style={S.header}>
         <div style={S.headerLogo}><span style={S.logoA}>ANIMANGA</span><span style={S.logoB}>RATER</span></div>
         <div style={S.headerTabs}>
-          {["leaderboard","subcats","bulk","admin"].map(t => (
+          {["leaderboard","subcats","bulk","arcs","admin"].map(t => (
             <button key={t} onClick={() => setMainTab(t)}
               style={{ ...S.headerTab, ...(mainTab === t ? S.headerTabActive : {}) }}>
-              {t === "leaderboard" ? "OVERALL" : t === "subcats" ? "SUBCATEGORIES" : t === "bulk" ? "BULK ENTRY" : "ADMIN"}
+              {t === "leaderboard" ? "OVERALL" : t === "subcats" ? "SUBCATEGORIES" : t === "bulk" ? "BULK ENTRY" : t === "arcs" ? "ARCS" : "ADMIN"}
             </button>
           ))}
         </div>
@@ -935,6 +1101,21 @@ export default function App() {
         />
       )}
 
+      {/* ── ARCS ── */}
+      {mainTab === "arcs" && (
+        <ArcLeaderboard
+          arcs={arcs}
+          allArcRatings={allArcRatings}
+          arcLeaderboard={getArcLeaderboard()}
+          lbMode={lbMode}
+          setLbMode={setLbMode}
+          onViewArc={(arc) => setActiveArc(arc)}
+          onSuggest={submitArcSuggestion}
+          myUserId={session?.userId}
+          titles={titles}
+        />
+      )}
+
       {/* ── ADMIN ── */}
       {mainTab === "admin" && (
         <div style={S.adminPage}>
@@ -957,6 +1138,23 @@ export default function App() {
                       <div style={{ display: "flex", gap: 8 }}>
                         <button style={S.approveBtn} onClick={() => approveSuggestion(item)}>✓ Approve</button>
                         <button style={S.rejectBtn} onClick={() => rejectSuggestion(item)}>✕ Reject</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {pendingArcs.length > 0 && (
+                <div style={S.card}>
+                  <div style={S.cardLabel}>PENDING ARC SUGGESTIONS</div>
+                  {pendingArcs.map(item => (
+                    <div key={item.id} style={S.pendingRow}>
+                      <div>
+                        <div style={S.pendingTitle}>{item.arc_name}</div>
+                        <div style={S.pendingMeta}>{item.title} · suggested by {item.suggested_by}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button style={S.approveBtn} onClick={() => approveArcSuggestion(item)}>✓ Approve</button>
+                        <button style={S.rejectBtn} onClick={() => rejectArcSuggestion(item)}>✕ Reject</button>
                       </div>
                     </div>
                   ))}
@@ -1875,6 +2073,259 @@ function TitleComparison({ title, myData, theirData, applicability, myUsername, 
                       color: diff !== null ? (diff > 0 ? "#34d399" : diff < 0 ? "#f87171" : "#475569") : "#1e2d3d" }}>
                       {diff !== null ? (diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)) : "—"}
                     </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── ARC LEADERBOARD ──────────────────────────────────────────────────────────
+function ArcLeaderboard({ arcs, allArcRatings, arcLeaderboard, lbMode, setLbMode, onViewArc, onSuggest, myUserId, titles }) {
+  const F = "'Inter', system-ui, sans-serif";
+  const [suggestForm, setSuggestForm] = useState({ title: "", arcName: "" });
+
+  return (
+    <div style={{ fontFamily: F }}>
+      <div style={{ display: "flex", gap: 16, maxWidth: 1100, margin: "28px auto", padding: "0 16px", alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0, background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1e2d3d" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#60a5fa" }}>ARC RANKINGS</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              {["combined","individual"].map(m => (
+                <button key={m} onClick={() => setLbMode(m)}
+                  style={{ background: "none", border: "1px solid #1e2d3d", color: lbMode === m ? "#60a5fa" : "#475569",
+                    padding: "5px 14px", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: F, borderRadius: 6,
+                    ...(lbMode === m ? { background: "#1e2d3d", borderColor: "#60a5fa" } : {}) }}>
+                  {m === "combined" ? "AVG" : "MINE"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {arcs.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", color: "#475569", fontSize: 14 }}>
+              No arcs yet — suggest one using the panel on the right.
+            </div>
+          ) : (
+            <div style={{ padding: "8px 0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 20px", fontSize: 11, fontWeight: 600, color: "#334155", letterSpacing: 1, borderBottom: "1px solid #1a2535" }}>
+                <span style={{ width: 36 }}>#</span>
+                <span style={{ width: 160 }}>Series</span>
+                <span style={{ flex: 1 }}>Arc</span>
+                <span style={{ width: 80, textAlign: "right" }}>Score</span>
+                {lbMode === "combined" && <span style={{ width: 60, textAlign: "right", fontSize: 11, color: "#64748b" }}>Mine</span>}
+                <span style={{ width: 70, textAlign: "right" }}>Ratings</span>
+              </div>
+              {arcLeaderboard.map((row, i) => {
+                const score = lbMode === "combined" ? row.combined : row.myScore;
+                return (
+                  <div key={row.id}
+                    style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", cursor: "pointer", borderBottom: "1px solid #131d2e" }}
+                    onClick={() => onViewArc(row)}>
+                    <span style={{ width: 36, fontSize: 13, fontWeight: 700, color: i < 3 ? ["#f59e0b","#94a3b8","#cd7c3a"][i] : "#475569" }}>{i+1}</span>
+                    <span style={{ width: 160, fontSize: 12, color: "#475569" }}>{row.title}</span>
+                    <span style={{ flex: 1, fontSize: 15, fontWeight: 500, color: "#cbd5e1" }}>{row.arc_name}</span>
+                    <span style={{ width: 80, textAlign: "right", fontSize: 18, fontWeight: 700, color: scoreColor(score) }}>
+                      {score !== null ? score.toFixed(2) : <span style={{ color: "#334155" }}>—</span>}
+                    </span>
+                    {lbMode === "combined" && (
+                      <span style={{ width: 60, textAlign: "right", fontSize: 12, color: scoreColor(row.myScore) }}>
+                        {row.myScore !== null ? row.myScore.toFixed(1) : "—"}
+                      </span>
+                    )}
+                    <span style={{ width: 70, textAlign: "right", fontSize: 12, color: "#475569" }}>
+                      {row.ratedBy} user{row.ratedBy !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div style={{ width: 270, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10, padding: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 12 }}>SUGGEST ARC</div>
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>Series</div>
+            <select style={{ width: "100%", background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0",
+              padding: "9px 12px", fontSize: 13, marginBottom: 10, fontFamily: F, borderRadius: 6, outline: "none" }}
+              value={suggestForm.title}
+              onChange={e => setSuggestForm(p => ({ ...p, title: e.target.value }))}>
+              <option value="">Select series...</option>
+              {titles.map(t => <option key={t.title} value={t.title}>{t.title}</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>Arc Name</div>
+            <input style={{ width: "100%", background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0",
+              padding: "9px 12px", fontSize: 13, marginBottom: 10, fontFamily: F, borderRadius: 6, outline: "none" }}
+              placeholder="e.g. Chimera Ant Arc"
+              value={suggestForm.arcName}
+              onChange={e => setSuggestForm(p => ({ ...p, arcName: e.target.value }))}
+              onKeyDown={e => e.key === "Enter" && onSuggest(suggestForm.title, suggestForm.arcName)} />
+            <button style={{ width: "100%", background: "#3b82f6", border: "none", color: "#fff", padding: "10px",
+              cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6 }}
+              onClick={() => { onSuggest(suggestForm.title, suggestForm.arcName); setSuggestForm({ title: "", arcName: "" }); }}>
+              Submit
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ARC RATING SHEET ─────────────────────────────────────────────────────────
+function ArcRatingSheet({ arc, data, applicability, onSave, onBack, isAdmin }) {
+  const F = "'Inter', system-ui, sans-serif";
+  const [scores, setScores]           = useState(data.scores || {});
+  const [version, setVersion]         = useState(data.version || "");
+  const [status, setStatus]           = useState(data.status || null);
+  const [notes, setNotes]             = useState(data.notes || "");
+  const [subcatNotes, setSubcatNotes] = useState(data.subcatNotes || {});
+  const [applic, setApplic]           = useState(applicability || {});
+  const [dirty, setDirty]             = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [expandedNotes, setExpandedNotes] = useState({});
+
+  useEffect(() => { setApplic(applicability || {}); }, [applicability]);
+
+  const setScore = (cat, key, val) => {
+    const v = val === "" ? undefined : Math.min(20, Math.max(0, Number(val)));
+    setScores(p => ({ ...p, [cat]: { ...(p[cat] || {}), [key]: v } }));
+    setDirty(true);
+  };
+  const setSubcatNote = (cat, key, val) => {
+    setSubcatNotes(p => ({ ...p, [`${cat}:${key}`]: val })); setDirty(true);
+  };
+  const toggleNote = (cat, key) => {
+    const k = `${cat}:${key}`; setExpandedNotes(p => ({ ...p, [k]: !p[k] }));
+  };
+
+  const finalScore = calcFinalScore(scores, applic, ARC_CATEGORY_WEIGHTS, ARC_SUBCATEGORIES);
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", background: "#0b1118", position: "sticky", top: 0, zIndex: 100 }}>
+        <button style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }} onClick={onBack}>← Back</button>
+        <div style={{ flex: 1, display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span style={{ fontSize: 14, color: "#475569" }}>{arc.title}</span>
+          <span style={{ fontSize: 18, fontWeight: 800, color: "#f1f5f9", marginLeft: 4 }}>{arc.arc_name}</span>
+          {finalScore !== null &&
+            <span style={{ fontSize: 26, fontWeight: 800, color: scoreColor(finalScore), marginLeft: 16 }}>
+              {finalScore.toFixed(3)}
+            </span>}
+        </div>
+        <button style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "8px 18px",
+          cursor: saving || !dirty ? "default" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6,
+          opacity: (dirty && !saving) ? 1 : 0.4 }}
+          disabled={!dirty || saving}
+          onClick={async () => {
+            setSaving(true);
+            try { await onSave({ scores, version, status, notes, subcatNotes }); setDirty(false); }
+            finally { setSaving(false); }
+          }}>
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+
+      {/* Meta */}
+      <div style={{ display: "flex", gap: 24, padding: "14px 28px", borderBottom: "1px solid #1e2d3d", flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 4 }}>VERSION / FORM</span>
+          <input style={{ width: 240, background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "9px 12px", fontSize: 13, fontFamily: F, borderRadius: 6, outline: "none" }}
+            placeholder="e.g. Anime, Manga"
+            value={version} onChange={e => { setVersion(e.target.value); setDirty(true); }} />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 4 }}>STATUS</span>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {COMPLETION_STATUSES.map(s => (
+              <button key={s} onClick={() => { setStatus(s); setDirty(true); }}
+                style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 20, cursor: "pointer", border: "1px solid",
+                  borderColor: status === s ? STATUS_COLORS[s] : "#1e2d3d",
+                  color: status === s ? STATUS_COLORS[s] : "#475569",
+                  background: status === s ? `${STATUS_COLORS[s]}18` : "none", fontFamily: F }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: "12px 28px", borderBottom: "1px solid #1e2d3d" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 4 }}>OVERALL NOTES</div>
+        <textarea style={{ width: "100%", background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "9px 12px", fontSize: 13, fontFamily: F, borderRadius: 6, outline: "none", minHeight: 70, lineHeight: 1.5 }}
+          placeholder="General thoughts on this arc..."
+          value={notes} onChange={e => { setNotes(e.target.value); setDirty(true); }} />
+      </div>
+
+      {/* Cat summary */}
+      <div style={{ display: "flex", borderBottom: "1px solid #1e2d3d" }}>
+        {ARC_CATEGORIES.map(cat => {
+          const cs = calcCategoryScore(cat, scores, applic, ARC_SUBCATEGORIES);
+          return (
+            <div key={cat} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "14px 8px", gap: 3, borderRight: "1px solid #1e2d3d" }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 2, color: "#475569" }}>{cat.toUpperCase()}</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: cs !== null ? scoreColor(cs) : "#334155" }}>
+                {cs !== null ? cs.toFixed(2) : "—"}
+              </span>
+              <span style={{ fontSize: 11, color: "#475569" }}>{(ARC_CATEGORY_WEIGHTS[cat]*100).toFixed(0)}%</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Subcategory grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+        {ARC_CATEGORIES.map(cat => (
+          <div key={cat} style={{ borderRight: "1px solid #1e2d3d", borderBottom: "1px solid #1e2d3d" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 18px", background: "#0b1118", borderBottom: "1px solid #1e2d3d" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 3, color: "#60a5fa" }}>{cat.toUpperCase()}</span>
+              <span style={{ fontSize: 11, color: "#475569" }}>{(ARC_CATEGORY_WEIGHTS[cat]*100).toFixed(0)}%</span>
+            </div>
+            <div style={{ padding: "8px 18px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, fontWeight: 600, color: "#334155", letterSpacing: 1, padding: "5px 0", borderBottom: "1px solid #1a2535", marginBottom: 4 }}>
+                <span style={{ flex: 1 }}>Subcategory</span>
+                <span style={{ width: 75, textAlign: "center" }}>Score</span>
+                <span style={{ width: 75, textAlign: "center" }}>Apply</span>
+                <span style={{ width: 44, textAlign: "center" }}>Wt</span>
+                <span style={{ width: 28 }}></span>
+              </div>
+              {ARC_SUBCATEGORIES[cat].map(s => {
+                const app = applic?.[cat]?.[s.key] ?? 1;
+                const sc  = scores?.[cat]?.[s.key];
+                const noteKey = `${cat}:${s.key}`;
+                const noteOpen = expandedNotes[noteKey];
+                const hasNote = subcatNotes[noteKey]?.trim();
+                return (
+                  <div key={s.key}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #0f1a2a" }}>
+                      <span style={{ flex: 1, fontSize: 13, color: "#cbd5e1" }}>{s.label}</span>
+                      <input type="number" min="0" max="20" step="0.5"
+                        style={{ width: 75, background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "5px 6px", fontSize: 13, textAlign: "center", fontFamily: F, borderRadius: 5, outline: "none" }}
+                        value={sc ?? ""} placeholder="—"
+                        onChange={e => setScore(cat, s.key, e.target.value)} />
+                      <input type="number" min="0" max="1" step="0.1"
+                        disabled={!isAdmin}
+                        style={{ width: 75, background: "#0b1118", border: "1px solid #1e2d3d", color: app < 1 ? "#fb923c" : "#64748b", padding: "5px 6px", fontSize: 13, textAlign: "center", fontFamily: F, borderRadius: 5, outline: "none", cursor: isAdmin ? "text" : "not-allowed", opacity: isAdmin ? 1 : 0.6 }}
+                        value={app} onChange={e => isAdmin && setApplic(p => ({ ...p, [cat]: { ...(p[cat]||{}), [s.key]: Math.min(1,Math.max(0,Number(e.target.value))) } }))} />
+                      <span style={{ width: 44, textAlign: "center", fontSize: 11, color: "#475569" }}>{(s.weight*100).toFixed(0)}%</span>
+                      <button onClick={() => toggleNote(cat, s.key)}
+                        style={{ width: 28, background: "none", border: "none", cursor: "pointer", color: hasNote ? "#60a5fa" : "#334155", fontSize: 14, padding: 0, fontFamily: F }}>✎</button>
+                    </div>
+                    {noteOpen && (
+                      <div style={{ padding: "4px 8px 8px", background: "#0b1118" }}>
+                        <textarea
+                          style={{ width: "100%", background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "7px 10px", fontSize: 12, fontFamily: F, borderRadius: 5, outline: "none", minHeight: 52, lineHeight: 1.4 }}
+                          placeholder={`Notes on ${s.label}...`}
+                          value={subcatNotes[noteKey] || ""}
+                          onChange={e => setSubcatNote(cat, s.key, e.target.value)} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
