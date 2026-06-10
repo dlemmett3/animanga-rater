@@ -76,6 +76,20 @@ const ARC_SUBCATEGORIES = {
 
 const ARC_CATEGORIES = Object.keys(ARC_SUBCATEGORIES);
 
+// Arc anchors reuse series anchors but override Writing with arc-specific ones
+const ARC_ANCHORS = {
+  Structure: null, // same as series — resolved at render time
+  Character: null, // same as series
+  Writing: {
+    themes: null,    // same as series
+    emotion: null,   // same as series
+    cohesion: "arc_cohesion",   // arc-specific
+    significance: "arc_significance", // arc-specific
+    dialogue: null,  // same as series
+  },
+  Technical: null,   // same as series
+};
+
 const CATEGORIES = Object.keys(SUBCATEGORIES);
 const ALL_SUBCATS = CATEGORIES.flatMap(cat => SUBCATEGORIES[cat].map(s => ({ ...s, cat })));
 const COMPLETION_STATUSES = ["Completed","Ongoing","Hiatus","Dropped","Plan to read/watch"];
@@ -211,6 +225,22 @@ const ANCHORS = {
       { range: "10-13", desc: "Some purposeful symbolism that adds texture without being central to the experience" },
       { range: "6-9",   desc: "Symbolic elements that feel surface-level or inconsistently deployed — present but not meaningfully developed" },
       { range: "0-5",   desc: "No meaningful symbolic language, or symbolism so heavy-handed it becomes parody" },
+    ],
+    // Arc-specific Writing anchors
+    cohesion: [
+      { range: "18-20", desc: "Every element within the arc — character beats, plot threads, tone, theme — feels deliberately interconnected. The arc rewards rereading and nothing feels accidental or unresolved" },
+      { range: "14-17", desc: "Strong internal cohesion with clear throughlines — the arc feels authored as a unified unit rather than assembled episode by episode" },
+      { range: "10-13", desc: "Generally coherent with some threads that don't fully connect or tonal inconsistencies that break immersion" },
+      { range: "6-9",   desc: "Significant cohesion failures within the arc — plot threads abandoned, contradictory character behavior, or a tone that shifts without purpose" },
+      { range: "0-5",   desc: "The arc contradicts or undermines itself to a degree that damages the experience as a standalone unit" },
+    ],
+    significance: [
+      { range: "18-20", desc: "The arc is load-bearing for the entire series — it repositions characters, raises stakes, resolves or establishes threads that define the work's identity. The series cannot be imagined without it" },
+      { range: "14-17", desc: "The arc meaningfully advances or enriches the series — its events, revelations, or character shifts reverberate beyond its own chapters" },
+      { range: "10-13", desc: "The arc contributes to the series without being essential — it adds context or development that enriches but doesn't define the work" },
+      { range: "6-9",   desc: "The arc's contribution to the series is minimal — it could largely be skipped without meaningful loss to the larger narrative" },
+      { range: "0-5",   desc: "The arc is actively detrimental to the series — filler that undermines pacing, contradicts established lore, or wastes narrative momentum" },
+      { range: "N/A",   desc: "Final arcs that resolve rather than advance — evaluate on quality of resolution rather than forward momentum" },
     ],
   },
   Technical: {
@@ -1446,11 +1476,14 @@ function SubcatLeaderboard({ subcat, rows, lbMode, setLbMode, onBack, onEditInli
 
 
 // ─── TOOLTIP ──────────────────────────────────────────────────────────────────
-function AnchorTooltip({ cat, subkey, label }) {
+function AnchorTooltip({ cat, subkey, label, isArc }) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const ref = React.useRef();
-  const anchors = ANCHORS[cat]?.[subkey] || [];
+  // For arc Writing subcategories, use arc-specific anchors; fall back to series anchors
+  const arcOverrides = { cohesion: "cohesion", significance: "significance" };
+  const anchorKey = isArc && arcOverrides[subkey] ? arcOverrides[subkey] : subkey;
+  const anchors = ANCHORS[cat]?.[anchorKey] || ANCHORS[cat]?.[subkey] || [];
 
   const handleMouseEnter = (e) => {
     const rect = ref.current?.getBoundingClientRect();
@@ -2140,29 +2173,7 @@ function ArcLeaderboard({ arcs, allArcRatings, arcLeaderboard, lbMode, setLbMode
         </div>
 
         <div style={{ width: 270, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10, padding: 18 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 12 }}>SUGGEST ARC</div>
-            <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>Series</div>
-            <select style={{ width: "100%", background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0",
-              padding: "9px 12px", fontSize: 13, marginBottom: 10, fontFamily: F, borderRadius: 6, outline: "none" }}
-              value={suggestForm.title}
-              onChange={e => setSuggestForm(p => ({ ...p, title: e.target.value }))}>
-              <option value="">Select series...</option>
-              {titles.map(t => <option key={t.title} value={t.title}>{t.title}</option>)}
-            </select>
-            <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>Arc Name</div>
-            <input style={{ width: "100%", background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0",
-              padding: "9px 12px", fontSize: 13, marginBottom: 10, fontFamily: F, borderRadius: 6, outline: "none" }}
-              placeholder="e.g. Chimera Ant Arc"
-              value={suggestForm.arcName}
-              onChange={e => setSuggestForm(p => ({ ...p, arcName: e.target.value }))}
-              onKeyDown={e => e.key === "Enter" && onSuggest(suggestForm.title, suggestForm.arcName)} />
-            <button style={{ width: "100%", background: "#3b82f6", border: "none", color: "#fff", padding: "10px",
-              cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6 }}
-              onClick={() => { onSuggest(suggestForm.title, suggestForm.arcName); setSuggestForm({ title: "", arcName: "" }); }}>
-              Submit
-            </button>
-          </div>
+          <ArcSuggestPanel titles={titles} onSuggest={onSuggest} />
         </div>
       </div>
     </div>
@@ -2295,7 +2306,7 @@ function ArcRatingSheet({ arc, data, applicability, onSave, onBack, isAdmin }) {
                 return (
                   <div key={s.key}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #0f1a2a" }}>
-                      <span style={{ flex: 1, fontSize: 13, color: "#cbd5e1" }}>{s.label}</span>
+                      <AnchorTooltip cat={cat} subkey={s.key} label={s.label} isArc={true} />
                       <input type="number" min="0" max="20" step="0.5"
                         style={{ width: 75, background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "5px 6px", fontSize: 13, textAlign: "center", fontFamily: F, borderRadius: 5, outline: "none" }}
                         value={sc ?? ""} placeholder="—"
@@ -2324,6 +2335,92 @@ function ArcRatingSheet({ arc, data, applicability, onSave, onBack, isAdmin }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── ARC SUGGEST PANEL ────────────────────────────────────────────────────────
+function ArcSuggestPanel({ titles, onSuggest }) {
+  const F = "'Inter', system-ui, sans-serif";
+  const [lockedTitle, setLockedTitle] = useState(null);
+  const [arcName, setArcName] = useState("");
+  const [submitted, setSubmitted] = useState([]);
+
+  const handleSubmit = () => {
+    if (!arcName.trim() || !lockedTitle) return;
+    onSuggest(lockedTitle, arcName.trim());
+    setSubmitted(p => [...p, arcName.trim()]);
+    setArcName("");
+  };
+
+  const handleUnlock = () => {
+    setLockedTitle(null);
+    setSubmitted([]);
+    setArcName("");
+  };
+
+  return (
+    <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10, padding: 18, fontFamily: F }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 12 }}>SUGGEST ARC</div>
+
+      {!lockedTitle ? (
+        <>
+          <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>Select a series to start adding arcs</div>
+          {titles.map(t => (
+            <div key={t.title}
+              onClick={() => setLockedTitle(t.title)}
+              style={{ padding: "9px 12px", marginBottom: 4, background: "#0b1118", border: "1px solid #1e2d3d",
+                borderRadius: 6, cursor: "pointer", fontSize: 13, color: "#cbd5e1",
+                transition: "border-color 0.15s" }}>
+              {t.title}
+            </div>
+          ))}
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 10, color: "#475569", letterSpacing: 1, marginBottom: 2 }}>SERIES</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa" }}>{lockedTitle}</div>
+            </div>
+            <button onClick={handleUnlock}
+              style={{ background: "none", border: "1px solid #1e2d3d", color: "#475569", padding: "4px 10px",
+                cursor: "pointer", fontSize: 11, fontFamily: F, borderRadius: 5 }}>
+              Change
+            </button>
+          </div>
+
+          <input
+            style={{ width: "100%", background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0",
+              padding: "9px 12px", fontSize: 13, marginBottom: 8, fontFamily: F, borderRadius: 6, outline: "none",
+              boxSizing: "border-box" }}
+            placeholder="Arc name (e.g. Chimera Ant Arc)"
+            value={arcName}
+            onChange={e => setArcName(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSubmit()}
+            autoFocus
+          />
+          <button
+            style={{ width: "100%", background: "#3b82f6", border: "none", color: "#fff", padding: "10px",
+              cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6,
+              opacity: arcName.trim() ? 1 : 0.4 }}
+            onClick={handleSubmit}>
+            Submit Arc
+          </button>
+
+          {submitted.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 10, color: "#475569", letterSpacing: 1, marginBottom: 6 }}>SUBMITTED</div>
+              {submitted.map((name, i) => (
+                <div key={i} style={{ fontSize: 12, color: "#34d399", padding: "3px 0",
+                  borderBottom: "1px solid #0f1a2a", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ color: "#34d399" }}>✓</span> {name}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
