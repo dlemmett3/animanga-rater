@@ -530,6 +530,22 @@ async function addArcPending(token, title, arcName, suggestedBy) { await sbFetch
 async function approveArc(token, id) { await sbFetch(`arcs?id=eq.${id}`, "PATCH", { approved: true }, token); }
 async function deleteArc(token, id) { await sbFetch(`arcs?id=eq.${id}`, "DELETE", null, token); }
 async function fetchAllArcRatings(token) { return await sbFetch("arc_ratings?select=*", "GET", null, token) || []; }
+async function fetchArcApplicability(token) { return await sbFetch("arc_applicability?select=*", "GET", null, token) || []; }
+async function upsertArcApplicability(token, arcId, data) {
+  const activeToken = token || _getToken() || SUPABASE_ANON_KEY;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/arc_applicability?on_conflict=arc_id`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${activeToken}`,
+      "Prefer": "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify({ arc_id: arcId, data }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 async function upsertArcRating(token, userId, username, arcId, data) {
   const activeToken = token || _getToken() || SUPABASE_ANON_KEY;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/arc_ratings?on_conflict=user_id,arc_id`, {
@@ -709,11 +725,11 @@ export default function App() {
 
   const loadAll = async (sess) => {
     try {
-      const [rawTitles, rawRatings, rawApplic, rawProfiles, code, rawArcs, rawArcRatings] = await Promise.all([
+      const [rawTitles, rawRatings, rawApplic, rawProfiles, code, rawArcs, rawArcRatings, rawArcApplic] = await Promise.all([
         fetchTitles(sess.token), fetchAllRatings(sess.token),
         fetchApplicability(sess.token), fetchProfiles(sess.token),
         fetchInviteCode(sess.token), fetchArcs(sess.token),
-        fetchAllArcRatings(sess.token),
+        fetchAllArcRatings(sess.token), fetchArcApplicability(sess.token),
       ]);
       setTitles(rawTitles.filter(t => t.approved).map(t => ({ id: t.id, title: t.title })));
       setPending(rawTitles.filter(t => !t.approved));
@@ -726,6 +742,9 @@ export default function App() {
       setArcs(rawArcs.filter(a => a.approved).map(a => ({ id: a.id, title: a.title, arc_name: a.arc_name })));
       setPendingArcs(rawArcs.filter(a => !a.approved));
       setAllArcRatings(rawArcRatings);
+      const arcAppMap = {};
+      for (const row of rawArcApplic) arcAppMap[row.arc_id] = row.data;
+      setArcApplicability(arcAppMap);
     } catch { showToast("Failed to load data", "err"); }
   };
 
@@ -815,6 +834,14 @@ export default function App() {
   const rejectSuggestion = async (item) => {
     try { await deleteTitle(session.token, item.id); await loadAll(session); showToast("Rejected"); }
     catch { showToast("Failed", "err"); }
+  };
+
+  const saveArcApplicability = async (arcId, data) => {
+    try {
+      await upsertArcApplicability(session.token, arcId, data);
+      setArcApplicability(prev => ({ ...prev, [arcId]: data }));
+      showToast("Applicability saved");
+    } catch { showToast("Save failed", "err"); }
   };
 
   const saveArcRating = async (arcId, data) => {
@@ -988,6 +1015,7 @@ export default function App() {
       data={myArcRatingFor(activeArc.id)?.data || { scores: {}, version: "", status: null, notes: "", subcatNotes: {} }}
       applicability={arcApplicability[activeArc.id] || {}}
       onSave={(d) => saveArcRating(activeArc.id, d)}
+      onSaveApplicability={(a) => saveArcApplicability(activeArc.id, a)}
       onBack={() => setActiveArc(null)}
       isAdmin={session?.isAdmin}
     />
@@ -2262,7 +2290,7 @@ function ArcLeaderboard({ arcs, allArcRatings, arcLeaderboard, lbMode, setLbMode
 }
 
 // ─── ARC RATING SHEET ─────────────────────────────────────────────────────────
-function ArcRatingSheet({ arc, data, applicability, onSave, onBack, isAdmin }) {
+function ArcRatingSheet({ arc, data, applicability, onSave, onSaveApplicability, onBack, isAdmin }) {
   const F = "'Inter', system-ui, sans-serif";
   const [scores, setScores]           = useState(data.scores || {});
   const [version, setVersion]         = useState(data.version || "");
@@ -2272,6 +2300,7 @@ function ArcRatingSheet({ arc, data, applicability, onSave, onBack, isAdmin }) {
   const [applic, setApplic]           = useState(applicability || {});
   const [dirty, setDirty]             = useState(false);
   const [saving, setSaving]           = useState(false);
+  const [applicDirty, setApplicDirty] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState({});
 
   useEffect(() => { setApplic(applicability || {}); }, [applicability]);
@@ -2302,17 +2331,26 @@ function ArcRatingSheet({ arc, data, applicability, onSave, onBack, isAdmin }) {
               {finalScore.toFixed(3)}
             </span>}
         </div>
-        <button style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "8px 18px",
-          cursor: saving || !dirty ? "default" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6,
-          opacity: (dirty && !saving) ? 1 : 0.4 }}
-          disabled={!dirty || saving}
-          onClick={async () => {
-            setSaving(true);
-            try { await onSave({ scores, version, status, notes, subcatNotes }); setDirty(false); }
-            finally { setSaving(false); }
-          }}>
-          {saving ? "Saving..." : "Save"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {isAdmin && applicDirty && (
+            <button style={{ background: "#f59e0b", border: "none", color: "#fff", padding: "8px 18px",
+              cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6 }}
+              onClick={() => { onSaveApplicability(applic); setApplicDirty(false); }}>
+              Save Applicability
+            </button>
+          )}
+          <button style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "8px 18px",
+            cursor: saving || !dirty ? "default" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6,
+            opacity: (dirty && !saving) ? 1 : 0.4 }}
+            disabled={!dirty || saving}
+            onClick={async () => {
+              setSaving(true);
+              try { await onSave({ scores, version, status, notes, subcatNotes }); setDirty(false); }
+              finally { setSaving(false); }
+            }}>
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
       </div>
 
       {/* Meta */}
@@ -2395,7 +2433,7 @@ function ArcRatingSheet({ arc, data, applicability, onSave, onBack, isAdmin }) {
                       <input type="number" min="0" max="1" step="0.1"
                         disabled={!isAdmin}
                         style={{ width: 75, background: "#0b1118", border: "1px solid #1e2d3d", color: app < 1 ? "#fb923c" : "#64748b", padding: "5px 6px", fontSize: 13, textAlign: "center", fontFamily: F, borderRadius: 5, outline: "none", cursor: isAdmin ? "text" : "not-allowed", opacity: isAdmin ? 1 : 0.6 }}
-                        value={app} onChange={e => isAdmin && setApplic(p => ({ ...p, [cat]: { ...(p[cat]||{}), [s.key]: Math.min(1,Math.max(0,Number(e.target.value))) } }))} />
+                        value={app} onChange={e => { if (!isAdmin) return; setApplic(p => ({ ...p, [cat]: { ...(p[cat]||{}), [s.key]: Math.min(1,Math.max(0,Number(e.target.value))) } })); setApplicDirty(true); }} />
                       <span style={{ width: 44, textAlign: "center", fontSize: 11, color: "#475569" }}>{(s.weight*100).toFixed(0)}%</span>
                       <button onClick={() => toggleNote(cat, s.key)}
                         style={{ width: 28, background: "none", border: "none", cursor: "pointer", color: hasNote ? "#60a5fa" : "#334155", fontSize: 14, padding: 0, fontFamily: F }}>✎</button>
