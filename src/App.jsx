@@ -76,18 +76,99 @@ const ARC_SUBCATEGORIES = {
 
 const ARC_CATEGORIES = Object.keys(ARC_SUBCATEGORIES);
 
-// Arc anchors reuse series anchors but override Writing with arc-specific ones
-const ARC_ANCHORS = {
-  Structure: null, // same as series — resolved at render time
-  Character: null, // same as series
-  Writing: {
-    themes: null,    // same as series
-    emotion: null,   // same as series
-    cohesion: "arc_cohesion",   // arc-specific
-    significance: "arc_significance", // arc-specific
-    dialogue: null,  // same as series
+// Arc-specific anchor overrides — replaces series anchors where language doesn't apply
+const ARC_ANCHOR_OVERRIDES = {
+  Structure: {
+    plot: [
+      { range: "18-20", desc: "A masterfully constructed arc — setup, escalation, and resolution flow with complete intentionality. Every scene serves the arc's central conflict and nothing feels wasted or out of place" },
+      { range: "14-17", desc: "A well-structured arc with clear progression and only minor pacing stumbles or scenes that don't fully earn their place" },
+      { range: "10-13", desc: "A competent arc structure that gets from A to B effectively but with noticeable slack, padding, or underdeveloped threads" },
+      { range: "6-9",   desc: "Structural problems that damage the arc — scenes that go nowhere, a central conflict that isn't clearly established, or a narrative that loses its thread mid-arc" },
+      { range: "0-5",   desc: "No coherent arc structure — the narrative is directionless, contradictory, or so poorly constructed it damages the broader series" },
+    ],
+    climax: [
+      { range: "18-20", desc: "A climactic moment that defines not just the arc but potentially the entire series — emotionally, thematically, and narratively irreplaceable. Impossible to imagine the work without it" },
+      { range: "14-17", desc: "An exceptional peak that delivers fully on its buildup — the arc is defined by this moment and it lingers long after" },
+      { range: "10-13", desc: "A solid climax that lands without transcending — satisfying but not the kind of moment you return to mentally" },
+      { range: "6-9",   desc: "A climax that underdelivers relative to its setup, or an arc where the peak moment feels accidental rather than earned" },
+      { range: "0-5",   desc: "No meaningful climax, or a peak moment so poorly executed it deflates everything that preceded it" },
+    ],
+    pacing: [
+      { range: "18-20", desc: "Nearly flawless arc pacing — every chapter or episode breathes at exactly the right speed. No scenes overstay their welcome, no transitions feel rushed, tone is maintained throughout" },
+      { range: "14-17", desc: "Consistently well-paced with minor stumbles — the arc's rhythm serves its story without significantly disrupting immersion" },
+      { range: "10-13", desc: "Uneven pacing — stretches of excellent momentum undermined by bloated scenes, rushed resolutions, or tonal inconsistencies" },
+      { range: "6-9",   desc: "Persistent pacing issues that damage the arc — either chronically slow without purpose or so rushed that emotional beats don't land" },
+      { range: "0-5",   desc: "Pacing so poor it makes the arc fundamentally difficult to engage with" },
+    ],
+    conclusion: [
+      { range: "18-20", desc: "A perfect arc ending — thematically earned, emotionally resonant, and resolving every thread it opened. Leaves the series meaningfully changed" },
+      { range: "14-17", desc: "A strong conclusion that satisfies the arc's central conflict even if minor threads remain open or slightly underresolved" },
+      { range: "10-13", desc: "A functional arc ending that closes the immediate conflict without particularly resonating or elevating what came before" },
+      { range: "6-9",   desc: "A weak ending that undermines the arc — rushed, unearned, or resolving the central conflict in a way that feels hollow" },
+      { range: "0-5",   desc: "An ending so poor it damages not just the arc but retroactively undermines the series around it" },
+      { range: "N/A",   desc: "Ongoing arcs without a conclusion yet — set applicability to 0" },
+    ],
+    intro: [
+      { range: "18-20", desc: "An arc opening that immediately establishes its unique tone, central conflict, and stakes — compelling entirely on its own terms and setting a standard the arc then meets" },
+      { range: "14-17", desc: "A strong arc opening that hooks effectively, establishes what's at stake, and distinguishes this arc from what surrounds it" },
+      { range: "10-13", desc: "A functional intro that establishes the arc's conflict without being particularly memorable or distinctive" },
+      { range: "6-9",   desc: "A slow or tonally inconsistent opening that undersells the arc or sets wrong expectations for what follows" },
+      { range: "0-5",   desc: "An opening so poor it creates a barrier to engaging with the arc at all" },
+    ],
   },
-  Technical: null,   // same as series
+  Character: {
+    protagonist: [
+      { range: "18-20", desc: "The protagonist's role within this arc is among the finest character work in the medium — their choices, growth, or crisis within the arc are thematically essential and emotionally irreplaceable" },
+      { range: "14-17", desc: "Exceptional protagonist work within the arc — their presence elevates every scene and their arc-specific journey is compelling and well-executed" },
+      { range: "10-13", desc: "A solid protagonist performance within the arc — they serve the story well without this specific arc being a defining chapter for the character" },
+      { range: "6-9",   desc: "The protagonist feels passive, inconsistent, or underutilized within the arc relative to what the story demands of them" },
+      { range: "0-5",   desc: "The protagonist actively undermines the arc through poor writing, inconsistent characterization, or narrative irrelevance" },
+    ],
+    antagonists: [
+      { range: "18-20", desc: "The arc's antagonist(s) are among the finest in the medium — their ideology, presence, and role within the arc reframe the entire conflict and make the arc inseparable from their existence" },
+      { range: "14-17", desc: "Genuinely threatening and well-realized antagonist(s) with clear motivation and meaningful narrative weight within the arc" },
+      { range: "10-13", desc: "Solid antagonist(s) who fulfill their role effectively without being particularly complex or memorable" },
+      { range: "6-9",   desc: "Antagonist(s) who exist primarily as obstacles — motivation is thin and their presence is functional at best" },
+      { range: "0-5",   desc: "Antagonist(s) so poorly realized they damage the arc's stakes and credibility" },
+    ],
+    maincast: [
+      { range: "18-20", desc: "The arc's main cast is essential — each member carries genuine narrative weight within the arc, and removing any one would collapse something important in the story being told" },
+      { range: "14-17", desc: "A strong main cast contribution with distinct roles and meaningful involvement — the arc is clearly richer for how it uses them" },
+      { range: "10-13", desc: "The main cast functions adequately within the arc without any member being particularly essential or deeply characterized" },
+      { range: "6-9",   desc: "The main cast feels peripheral or interchangeable within the arc — present but not meaningfully deployed" },
+      { range: "0-5",   desc: "The main cast's role in the arc actively undermines it through poor writing or wasted potential" },
+    ],
+    deuteragonist: [
+      { range: "18-20", desc: "The deuteragonist's arc within this story is as essential as the protagonist's — their relationship and parallel journey define the arc's emotional core" },
+      { range: "14-17", desc: "A compelling deuteragonist presence within the arc — they carry independent narrative weight and their dynamic with the protagonist drives key moments" },
+      { range: "10-13", desc: "A solid deuteragonist contribution that enhances the arc without carrying fully independent narrative weight" },
+      { range: "6-9",   desc: "The deuteragonist feels subordinate or underutilized within the arc relative to their established importance" },
+      { range: "0-5",   desc: "The deuteragonist has no meaningful arc-specific presence or purpose" },
+      { range: "N/A",   desc: "Arcs without a clear deuteragonist — set applicability accordingly" },
+    ],
+    dynamics: [
+      { range: "18-20", desc: "The relationships within this arc carry its full thematic weight — interactions between characters recontextualize both parties and feel genuinely irreplaceable to what the arc is trying to say" },
+      { range: "14-17", desc: "Deeply compelling dynamics with real tension, chemistry, or emotional resonance that define the arc's most memorable moments" },
+      { range: "10-13", desc: "Solid character interactions that work within the arc without being particularly distinctive or thematically charged" },
+      { range: "6-9",   desc: "Character dynamics within the arc feel mechanical or underdeveloped — relationships that exist by necessity rather than by design" },
+      { range: "0-5",   desc: "Dynamics so poorly written they feel false or actively damage the characters involved" },
+    ],
+    development: [
+      { range: "18-20", desc: "The character transformation within this arc is so complete and earned it could stand alone as a full arc of growth — every step is justified by what came before within the arc itself" },
+      { range: "14-17", desc: "Meaningful, well-paced development that genuinely transforms at least one character in ways that matter to the arc and series" },
+      { range: "10-13", desc: "Noticeable development that lands but lacks the depth or consistency to be truly resonant at arc level" },
+      { range: "6-9",   desc: "Surface-level or rushed development — change happens but feels unearned given the arc's runtime" },
+      { range: "0-5",   desc: "No meaningful development, or character regression so poorly handled it damages the work" },
+      { range: "N/A",   desc: "Transitional arcs where development is minimal by design — set applicability accordingly" },
+    ],
+    sidecast: [
+      { range: "18-20", desc: "Even peripheral characters within the arc feel fully realized — collectively they expand the world and make the arc feel inhabited beyond its central cast" },
+      { range: "14-17", desc: "Strong supporting presence with several characters who meaningfully contribute to the arc's atmosphere or plot" },
+      { range: "10-13", desc: "A functional side presence that serves the arc without being particularly memorable" },
+      { range: "6-9",   desc: "Thin supporting characters who exist as plot devices or background without contributing meaningfully" },
+      { range: "0-5",   desc: "A side cast so underdeveloped it makes the arc's world feel hollow" },
+    ],
+  },
 };
 
 const CATEGORIES = Object.keys(SUBCATEGORIES);
@@ -1480,10 +1561,10 @@ function AnchorTooltip({ cat, subkey, label, isArc }) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const ref = React.useRef();
-  // For arc Writing subcategories, use arc-specific anchors; fall back to series anchors
-  const arcOverrides = { cohesion: "cohesion", significance: "significance" };
-  const anchorKey = isArc && arcOverrides[subkey] ? arcOverrides[subkey] : subkey;
-  const anchors = ANCHORS[cat]?.[anchorKey] || ANCHORS[cat]?.[subkey] || [];
+  // For arc mode, use ARC_ANCHOR_OVERRIDES first, then fall back to series ANCHORS
+  const anchors = (isArc && ARC_ANCHOR_OVERRIDES[cat]?.[subkey])
+    ? ARC_ANCHOR_OVERRIDES[cat][subkey]
+    : ANCHORS[cat]?.[subkey] || [];
 
   const handleMouseEnter = (e) => {
     const rect = ref.current?.getBoundingClientRect();
