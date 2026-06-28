@@ -447,8 +447,8 @@ async function fetchTierlistTemplates(token) { return await sbFetch("tierlist_te
 async function fetchTierlistVersions(token) { return await sbFetch("tierlist_versions?select=*&order=created_at.desc", "GET", null, token) || []; }
 async function fetchTierlistSuggestions(token) { return await sbFetch("tierlist_suggestions?select=*&order=created_at.desc", "GET", null, token) || []; }
 
-async function createTemplate(token, userId, username, name, description, tags, entries) {
-  const rows = await sbFetch("tierlist_templates", "POST", { user_id: userId, username, name, description, tags, entries }, token);
+async function createTemplate(token, userId, username, name, description, tags, entries, entryMeta, sourceColors) {
+  const rows = await sbFetch("tierlist_templates", "POST", { user_id: userId, username, name, description, tags, entries, entry_meta: entryMeta || {}, source_colors: sourceColors || {} }, token);
   return rows?.[0];
 }
 async function updateTemplate(token, id, updates) {
@@ -1383,9 +1383,9 @@ export default function App() {
           profiles={profiles}
           myUserId={session?.userId}
           myUsername={session?.username}
-          onCreateTemplate={async (name, description, tags, entries) => {
+          onCreateTemplate={async (name, description, tags, entries, entryMeta, sourceColors) => {
             try {
-              await createTemplate(session.token, session.userId, session.username, name, description, tags, entries);
+              await createTemplate(session.token, session.userId, session.username, name, description, tags, entries, entryMeta, sourceColors);
               await loadAll(session);
               showToast("Template created");
             } catch { showToast("Failed", "err"); }
@@ -2709,7 +2709,7 @@ function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, 
   const F = "'Inter', system-ui, sans-serif";
   const [view, setView] = useState("catalog"); // catalog | create_template | user
   const [selectedUser, setSelectedUser] = useState(null);
-  const [createForm, setCreateForm] = useState({ name: "", description: "", tags: "", entries: "" });
+  const [createForm, setCreateForm] = useState({ name: "", description: "", tags: "", entries: "", entryMeta: {}, sourceColors: {} });
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
@@ -2718,7 +2718,7 @@ function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, 
     try {
       const tags = createForm.tags.split(",").map(t => t.trim()).filter(Boolean);
       const entries = createForm.entries.split("\n").map(e => e.trim()).filter(Boolean);
-      await onCreateTemplate(createForm.name.trim(), createForm.description.trim(), tags, entries);
+      await onCreateTemplate(createForm.name.trim(), createForm.description.trim(), tags, entries, createForm.entryMeta, createForm.sourceColors);
       setCreateForm({ name: "", description: "", tags: "", entries: "" });
       setView("catalog");
     } finally { setCreating(false); }
@@ -2758,6 +2758,23 @@ function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, 
             {createForm.entries.split("\n").filter(e => e.trim()).length} entries
           </div>
         </div>
+
+        {/* Source color mapping */}
+        {createForm.entries.split("\n").filter(e => e.trim()).length > 0 && (
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 6 }}>
+              SOURCE COLOR MAPPING
+              <span style={{ fontSize: 10, color: "#475569", fontWeight: 400, marginLeft: 8, letterSpacing: 0 }}>Assign each entry to a source series</span>
+            </div>
+            <EntrySourceMapper
+              entries={createForm.entries.split("\n").filter(e => e.trim())}
+              entryMeta={createForm.entryMeta}
+              sourceColors={createForm.sourceColors}
+              onUpdate={(entryMeta, sourceColors) => setCreateForm(p => ({ ...p, entryMeta, sourceColors }))}
+            />
+          </div>
+        )}
+
         <button onClick={handleCreate} disabled={creating || !createForm.name.trim()}
           style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "11px", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6, opacity: createForm.name.trim() ? 1 : 0.4 }}>
           {creating ? "Creating..." : "Create Template"}
@@ -3082,17 +3099,18 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
                 {/* Items */}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "6px 8px", flex: 1, alignContent: "flex-start", minHeight: 52, background: `${tier.color}08` }}>
                   {(tier.items || []).map((item, idx) => (
-                    <div key={`${item}-${idx}`}
-                      draggable={isOwner}
+                    <EntryChip key={`${item}-${idx}`}
+                      item={item}
+                      template={template}
+                      isDragging={dragging?.item === item}
+                      isOver={dragOver?.tierId === tier.id && dragOver?.index === idx}
+                      tierColor={tier.color}
+                      isOwner={isOwner}
                       onDragStart={() => handleDragStart(item, tier.id, idx)}
                       onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragOver({ tierId: tier.id, index: idx }); }}
                       onDrop={e => { e.stopPropagation(); handleDrop(tier.id, idx); }}
-                      style={{ background: "#1e2d3d", border: `1px solid ${dragOver?.tierId === tier.id && dragOver?.index === idx ? tier.color : "#334155"}`,
-                        borderRadius: 4, padding: "4px 10px", fontSize: 13, color: "#e2e8f0",
-                        cursor: isOwner ? "grab" : "default", display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
-                      {item}
-                      {isOwner && <span onClick={() => removeEntry(item, tier.id)} style={{ color: "#475569", cursor: "pointer", fontSize: 11 }}>×</span>}
-                    </div>
+                      onRemove={() => removeEntry(item, tier.id)}
+                    />
                   ))}
                 </div>
 
@@ -3136,15 +3154,18 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
               onDragOver={e => { e.preventDefault(); setDragOver({ tierId: "__unranked__", index: unranked.length }); }}
               onDrop={() => handleDropUnranked(unranked.length)}>
               {unranked.map((item, idx) => (
-                <div key={`${item}-${idx}`}
-                  draggable={isOwner}
+                <EntryChip key={`${item}-${idx}`}
+                  item={item}
+                  template={template}
+                  isDragging={dragging?.item === item}
+                  isOver={dragOver?.tierId === "__unranked__" && dragOver?.index === idx}
+                  tierColor={null}
+                  isOwner={isOwner}
                   onDragStart={() => handleDragStart(item, "__unranked__", idx)}
                   onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragOver({ tierId: "__unranked__", index: idx }); }}
                   onDrop={e => { e.stopPropagation(); handleDropUnranked(idx); }}
-                  style={{ background: "#1e2d3d", border: "1px solid #334155", borderRadius: 4, padding: "4px 10px", fontSize: 13, color: "#94a3b8", cursor: isOwner ? "grab" : "default", display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
-                  {item}
-                  {isOwner && <span onClick={() => removeEntry(item, "__unranked__")} style={{ color: "#475569", cursor: "pointer", fontSize: 11 }}>×</span>}
-                </div>
+                  onRemove={() => removeEntry(item, "__unranked__")}
+                />
               ))}
               {unranked.length === 0 && <span style={{ fontSize: 12, color: "#334155" }}>Drag items here to unrank them</span>}
             </div>
@@ -3225,6 +3246,136 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── ENTRY SOURCE MAPPER ──────────────────────────────────────────────────────
+function EntrySourceMapper({ entries, entryMeta, sourceColors, onUpdate, existingTitles }) {
+  const F = "'Inter', system-ui, sans-serif";
+  const [newSourceName, setNewSourceName] = useState("");
+  const [newSourceColor, setNewSourceColor] = useState("#60a5fa");
+  const PALETTE = ["#ef4444","#f97316","#f59e0b","#84cc16","#22c55e","#14b8a6","#06b6d4","#3b82f6","#8b5cf6","#ec4899","#f472b6","#94a3b8"];
+
+  const addSource = () => {
+    if (!newSourceName.trim()) return;
+    const newColors = { ...sourceColors, [newSourceName.trim()]: newSourceColor };
+    onUpdate(entryMeta, newColors);
+    setNewSourceName("");
+  };
+
+  const removeSource = (src) => {
+    const newColors = { ...sourceColors };
+    delete newColors[src];
+    // Remove assignments for this source
+    const newMeta = {};
+    for (const [entry, meta] of Object.entries(entryMeta)) {
+      if (meta.source !== src) newMeta[entry] = meta;
+    }
+    onUpdate(newMeta, newColors);
+  };
+
+  const assignSource = (entry, source) => {
+    const newMeta = { ...entryMeta, [entry]: { source } };
+    onUpdate(newMeta, sourceColors);
+  };
+
+  const sources = Object.keys(sourceColors);
+
+  return (
+    <div style={{ fontFamily: F }}>
+      {/* Source legend */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 10, color: "#475569", letterSpacing: 1, marginBottom: 6 }}>SOURCES</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {sources.map(src => (
+            <div key={src} style={{ display: "flex", alignItems: "center", gap: 6, background: "#0b1118",
+              border: `1px solid ${sourceColors[src]}`, borderRadius: 20, padding: "3px 10px" }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: sourceColors[src], flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: sourceColors[src] }}>{src}</span>
+              <span onClick={() => removeSource(src)} style={{ fontSize: 11, color: "#475569", cursor: "pointer" }}>×</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <input style={{ ...IS, width: 160, fontSize: 12 }} placeholder="Source name (e.g. One Piece)"
+            value={newSourceName} onChange={e => setNewSourceName(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && addSource()} />
+          <input type="color" value={newSourceColor} onChange={e => setNewSourceColor(e.target.value)}
+            style={{ width: 32, height: 32, border: "1px solid #1e2d3d", background: "none", cursor: "pointer", borderRadius: 6, padding: 2 }} />
+          <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+            {PALETTE.map(c => (
+              <div key={c} onClick={() => setNewSourceColor(c)}
+                style={{ width: 18, height: 18, borderRadius: 3, background: c, cursor: "pointer",
+                  border: newSourceColor === c ? "2px solid #fff" : "2px solid transparent" }} />
+            ))}
+          </div>
+          <button onClick={addSource} disabled={!newSourceName.trim()}
+            style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "6px 12px", cursor: "pointer",
+              fontSize: 12, fontWeight: 600, fontFamily: F, borderRadius: 6, opacity: newSourceName.trim() ? 1 : 0.4 }}>
+            + Source
+          </button>
+        </div>
+      </div>
+
+      {/* Entry assignments */}
+      {sources.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, color: "#475569", letterSpacing: 1, marginBottom: 6 }}>ASSIGN ENTRIES</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 240, overflowY: "auto" }}>
+            {entries.map(entry => {
+              const assigned = entryMeta[entry]?.source;
+              return (
+                <div key={entry} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px",
+                  background: "#0b1118", border: "1px solid #1e2d3d", borderRadius: 5,
+                  borderLeft: assigned ? `3px solid ${sourceColors[assigned]}` : "3px solid #1e2d3d" }}>
+                  <span style={{ flex: 1, fontSize: 12, color: assigned ? sourceColors[assigned] : "#94a3b8" }}>{entry}</span>
+                  <select
+                    style={{ background: "#131d2e", border: "1px solid #1e2d3d", color: "#e2e8f0",
+                      padding: "3px 6px", fontSize: 11, fontFamily: F, borderRadius: 4, outline: "none" }}
+                    value={assigned || ""}
+                    onChange={e => assignSource(entry, e.target.value)}>
+                    <option value="">No source</option>
+                    {sources.map(src => <option key={src} value={src}>{src}</option>)}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ENTRY CHIP ───────────────────────────────────────────────────────────────
+function EntryChip({ item, template, isDragging, isOver, tierColor, isOwner, onDragStart, onDragOver, onDrop, onRemove }) {
+  const entryMeta = template?.entry_meta || {};
+  const sourceColors = template?.source_colors || {};
+  const source = entryMeta[item]?.source;
+  const color = source ? sourceColors[source] : null;
+
+  return (
+    <div
+      draggable={isOwner}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      title={source ? `Source: ${source}` : undefined}
+      style={{
+        background: color ? `${color}18` : "#1e2d3d",
+        border: `1px solid ${isOver && tierColor ? tierColor : color || "#334155"}`,
+        borderLeft: color ? `3px solid ${color}` : undefined,
+        borderRadius: 4, padding: "4px 10px", fontSize: 13,
+        color: color || (tierColor ? "#e2e8f0" : "#94a3b8"),
+        cursor: isOwner ? "grab" : "default",
+        display: "flex", alignItems: "center", gap: 6,
+        userSelect: "none", opacity: isDragging ? 0.5 : 1,
+        transition: "border-color 0.1s",
+      }}>
+      {color && <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 }} />}
+      {item}
+      {isOwner && <span onClick={onRemove} style={{ color: "#475569", cursor: "pointer", fontSize: 11 }}>×</span>}
     </div>
   );
 }
