@@ -442,6 +442,49 @@ async function signOut(token) {
   });
 }
 
+// ─── TIERLIST DB FUNCTIONS ───────────────────────────────────────────────────
+async function fetchTierlistTemplates(token) { return await sbFetch("tierlist_templates?select=*&order=created_at.desc", "GET", null, token) || []; }
+async function fetchTierlistVersions(token) { return await sbFetch("tierlist_versions?select=*&order=created_at.desc", "GET", null, token) || []; }
+async function fetchTierlistSuggestions(token) { return await sbFetch("tierlist_suggestions?select=*&order=created_at.desc", "GET", null, token) || []; }
+
+async function createTemplate(token, userId, username, name, description, tags, entries) {
+  const rows = await sbFetch("tierlist_templates", "POST", { user_id: userId, username, name, description, tags, entries }, token);
+  return rows?.[0];
+}
+async function updateTemplate(token, id, updates) {
+  await sbFetch(`tierlist_templates?id=eq.${id}`, "PATCH", updates, token);
+}
+async function deleteTemplate(token, id) {
+  await sbFetch(`tierlist_templates?id=eq.${id}`, "DELETE", null, token);
+}
+async function upsertTierlistVersion(token, userId, username, templateId, name, isCustom, tiers, unranked, existingId) {
+  const activeToken = token || _getToken() || SUPABASE_ANON_KEY;
+  if (existingId) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/tierlist_versions?id=eq.${existingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${activeToken}`, "Prefer": "return=representation" },
+      body: JSON.stringify({ tiers, unranked, updated_at: new Date().toISOString() }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json(); return data?.[0];
+  } else {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/tierlist_versions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${activeToken}`, "Prefer": "return=representation" },
+      body: JSON.stringify({ user_id: userId, username, template_id: templateId || null, name, is_custom: isCustom, tiers, unranked }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json(); return data?.[0];
+  }
+}
+async function deleteTierlistVersion(token, id) { await sbFetch(`tierlist_versions?id=eq.${id}`, "DELETE", null, token); }
+async function submitTierlistSuggestion(token, userId, username, templateId, type, entry) {
+  await sbFetch("tierlist_suggestions", "POST", { template_id: templateId, user_id: userId, username, suggestion_type: type, entry, status: "pending" }, token);
+}
+async function updateSuggestionStatus(token, id, status) {
+  await sbFetch(`tierlist_suggestions?id=eq.${id}`, "PATCH", { status }, token);
+}
+
 async function refreshSession(refreshToken) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
     method: "POST",
@@ -648,6 +691,10 @@ export default function App() {
   const [activeSubcat, setActiveSubcat] = useState(null);
   const [viewingUser, setViewingUser]   = useState(null);
   const [comparingTitle, setComparingTitle] = useState(null);
+  const [tierlistTemplates, setTierlistTemplates] = useState([]);
+  const [tierlistVersions, setTierlistVersions]   = useState([]);
+  const [tierlistSuggestions, setTierlistSuggestions] = useState([]);
+  const [activeTierlist, setActiveTierlist]       = useState(null); // { mode, template, version }
   const [arcs, setArcs]                 = useState([]);
   const [pendingArcs, setPendingArcs]   = useState([]);
   const [allArcRatings, setAllArcRatings] = useState([]);
@@ -725,11 +772,13 @@ export default function App() {
 
   const loadAll = async (sess) => {
     try {
-      const [rawTitles, rawRatings, rawApplic, rawProfiles, code, rawArcs, rawArcRatings, rawArcApplic] = await Promise.all([
+      const [rawTitles, rawRatings, rawApplic, rawProfiles, code, rawArcs, rawArcRatings, rawArcApplic, rawTemplates, rawVersions, rawSuggestions] = await Promise.all([
         fetchTitles(sess.token), fetchAllRatings(sess.token),
         fetchApplicability(sess.token), fetchProfiles(sess.token),
         fetchInviteCode(sess.token), fetchArcs(sess.token),
         fetchAllArcRatings(sess.token), fetchArcApplicability(sess.token),
+        fetchTierlistTemplates(sess.token), fetchTierlistVersions(sess.token),
+        fetchTierlistSuggestions(sess.token),
       ]);
       setTitles(rawTitles.filter(t => t.approved).map(t => ({ id: t.id, title: t.title })));
       setPending(rawTitles.filter(t => !t.approved));
@@ -745,6 +794,9 @@ export default function App() {
       const arcAppMap = {};
       for (const row of rawArcApplic) arcAppMap[row.arc_id] = row.data;
       setArcApplicability(arcAppMap);
+      setTierlistTemplates(rawTemplates);
+      setTierlistVersions(rawVersions);
+      setTierlistSuggestions(rawSuggestions);
     } catch { showToast("Failed to load data", "err"); }
   };
 
@@ -1009,6 +1061,83 @@ export default function App() {
 
   if (view === "main" && comparingTitle === "__all__" && viewingUser === null) return null;
 
+  if (view === "main" && activeTierlist) return (
+    <TierListEditor
+      mode={activeTierlist.mode}
+      template={activeTierlist.template}
+      version={activeTierlist.version}
+      myUserId={session?.userId}
+      myUsername={session?.username}
+      allVersions={tierlistVersions}
+      suggestions={tierlistSuggestions.filter(s => s.template_id === activeTierlist.template?.id)}
+      onSave={async (tiers, unranked, name, isCustom) => {
+        const existing = activeTierlist.version;
+        const templateId = activeTierlist.template?.id || null;
+        try {
+          const saved = await upsertTierlistVersion(
+            session.token, session.userId, session.username,
+            templateId, name, isCustom, tiers, unranked, existing?.id
+          );
+          await loadAll(session);
+          if (saved && !existing) setActiveTierlist(prev => ({ ...prev, version: saved }));
+          showToast("Saved");
+        } catch { showToast("Save failed", "err"); }
+      }}
+      onDelete={async () => {
+        if (!activeTierlist.version) return;
+        try {
+          await deleteTierlistVersion(session.token, activeTierlist.version.id);
+          await loadAll(session);
+          setActiveTierlist(null);
+          showToast("Deleted");
+        } catch { showToast("Failed", "err"); }
+      }}
+      onDeleteTemplate={async () => {
+        if (!activeTierlist.template || activeTierlist.template.user_id !== session?.userId) return;
+        try {
+          await deleteTemplate(session.token, activeTierlist.template.id);
+          await loadAll(session);
+          setActiveTierlist(null);
+          showToast("Template deleted");
+        } catch { showToast("Failed", "err"); }
+      }}
+      onUpdateTemplate={async (updates) => {
+        if (!activeTierlist.template) return;
+        try {
+          await updateTemplate(session.token, activeTierlist.template.id, updates);
+          await loadAll(session);
+          showToast("Template updated");
+        } catch { showToast("Failed", "err"); }
+      }}
+      onSuggestEntry={async (entry, type) => {
+        try {
+          await submitTierlistSuggestion(session.token, session.userId, session.username, activeTierlist.template.id, type, entry);
+          await loadAll(session);
+          showToast("Suggestion submitted");
+        } catch { showToast("Failed", "err"); }
+      }}
+      onApproveSuggestion={async (sug) => {
+        try {
+          await updateSuggestionStatus(session.token, sug.id, "approved");
+          // Add entry to template
+          const tmpl = activeTierlist.template;
+          const newEntries = [...(tmpl.entries || []), sug.entry];
+          await updateTemplate(session.token, tmpl.id, { entries: newEntries });
+          await loadAll(session);
+          showToast("Approved");
+        } catch { showToast("Failed", "err"); }
+      }}
+      onRejectSuggestion={async (sug) => {
+        try {
+          await updateSuggestionStatus(session.token, sug.id, "rejected");
+          await loadAll(session);
+          showToast("Rejected");
+        } catch { showToast("Failed", "err"); }
+      }}
+      onBack={() => setActiveTierlist(null)}
+    />
+  );
+
   if (view === "main" && activeArc) return (
     <ArcRatingSheet
       arc={activeArc}
@@ -1050,10 +1179,10 @@ export default function App() {
       <div style={S.header}>
         <div style={S.headerLogo}><span style={S.logoA}>ANIMANGA</span><span style={S.logoB}>RATER</span></div>
         <div style={S.headerTabs}>
-          {["leaderboard","subcats","bulk","arcs","admin"].map(t => (
+          {["leaderboard","subcats","bulk","arcs","tierlists","admin"].map(t => (
             <button key={t} onClick={() => setMainTab(t)}
               style={{ ...S.headerTab, ...(mainTab === t ? S.headerTabActive : {}) }}>
-              {t === "leaderboard" ? "OVERALL" : t === "subcats" ? "SUBCATEGORIES" : t === "bulk" ? "BULK ENTRY" : t === "arcs" ? "ARCS" : "ADMIN"}
+              {t === "leaderboard" ? "OVERALL" : t === "subcats" ? "SUBCATEGORIES" : t === "bulk" ? "BULK ENTRY" : t === "arcs" ? "ARCS" : t === "tierlists" ? "TIER LISTS" : "ADMIN"}
             </button>
           ))}
         </div>
@@ -1243,6 +1372,37 @@ export default function App() {
           onSuggest={submitArcSuggestion}
           myUserId={session?.userId}
           titles={titles}
+        />
+      )}
+
+      {/* ── TIER LISTS ── */}
+      {mainTab === "tierlists" && (
+        <TierListBrowser
+          templates={tierlistTemplates}
+          versions={tierlistVersions}
+          profiles={profiles}
+          myUserId={session?.userId}
+          myUsername={session?.username}
+          onCreateTemplate={async (name, description, tags, entries) => {
+            try {
+              await createTemplate(session.token, session.userId, session.username, name, description, tags, entries);
+              await loadAll(session);
+              showToast("Template created");
+            } catch { showToast("Failed", "err"); }
+          }}
+          onOpenTemplate={(template) => {
+            const myVersion = tierlistVersions.find(v => v.template_id === template.id && v.user_id === session?.userId);
+            setActiveTierlist({ mode: "template", template, version: myVersion || null });
+          }}
+          onOpenCustom={(version) => {
+            setActiveTierlist({ mode: "custom", template: null, version });
+          }}
+          onCreateCustom={() => {
+            setActiveTierlist({ mode: "custom", template: null, version: null });
+          }}
+          onViewUserLists={(user) => {
+            setActiveTierlist({ mode: "browse_user", template: null, version: null, browseUser: user });
+          }}
         />
       )}
 
@@ -2540,6 +2700,531 @@ function ArcSuggestPanel({ titles, onSuggest }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ─── TIER LIST BROWSER ────────────────────────────────────────────────────────
+function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, onCreateTemplate, onOpenTemplate, onOpenCustom, onCreateCustom }) {
+  const F = "'Inter', system-ui, sans-serif";
+  const [view, setView] = useState("catalog"); // catalog | create_template | user
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [createForm, setCreateForm] = useState({ name: "", description: "", tags: "", entries: "" });
+  const [creating, setCreating] = useState(false);
+
+  const handleCreate = async () => {
+    if (!createForm.name.trim()) return;
+    setCreating(true);
+    try {
+      const tags = createForm.tags.split(",").map(t => t.trim()).filter(Boolean);
+      const entries = createForm.entries.split("\n").map(e => e.trim()).filter(Boolean);
+      await onCreateTemplate(createForm.name.trim(), createForm.description.trim(), tags, entries);
+      setCreateForm({ name: "", description: "", tags: "", entries: "" });
+      setView("catalog");
+    } finally { setCreating(false); }
+  };
+
+  if (view === "create_template") return (
+    <div style={{ maxWidth: 700, margin: "32px auto", padding: "0 16px", fontFamily: F }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
+        <button onClick={() => setView("catalog")}
+          style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }}>
+          ← Back
+        </button>
+        <span style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9" }}>Create Template</span>
+      </div>
+      <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10, padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 6 }}>NAME</div>
+          <input style={{ ...IS, width: "100%" }} placeholder="e.g. HxH Character Rankings"
+            value={createForm.name} onChange={e => setCreateForm(p => ({ ...p, name: e.target.value }))} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 6 }}>DESCRIPTION (optional)</div>
+          <input style={{ ...IS, width: "100%" }} placeholder="Brief description of this tier list"
+            value={createForm.description} onChange={e => setCreateForm(p => ({ ...p, description: e.target.value }))} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 6 }}>TAGS (comma separated)</div>
+          <input style={{ ...IS, width: "100%" }} placeholder="e.g. Characters, HxH, Shonen"
+            value={createForm.tags} onChange={e => setCreateForm(p => ({ ...p, tags: e.target.value }))} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 6 }}>ENTRIES (one per line)</div>
+          <textarea style={{ ...IS, width: "100%", minHeight: 180, lineHeight: 1.6, resize: "vertical" }}
+            placeholder={"Gon Freecss\nKillua Zoldyck\nMeruem\nHisoka\nKurapika"}
+            value={createForm.entries} onChange={e => setCreateForm(p => ({ ...p, entries: e.target.value }))} />
+          <div style={{ fontSize: 11, color: "#475569", marginTop: 4 }}>
+            {createForm.entries.split("\n").filter(e => e.trim()).length} entries
+          </div>
+        </div>
+        <button onClick={handleCreate} disabled={creating || !createForm.name.trim()}
+          style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "11px", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6, opacity: createForm.name.trim() ? 1 : 0.4 }}>
+          {creating ? "Creating..." : "Create Template"}
+        </button>
+      </div>
+    </div>
+  );
+
+  if (view === "user" && selectedUser) {
+    const userVersions = versions.filter(v => v.user_id === selectedUser.id);
+    return (
+      <div style={{ maxWidth: 900, margin: "32px auto", padding: "0 16px", fontFamily: F }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
+          <button onClick={() => setView("catalog")}
+            style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }}>
+            ← Back
+          </button>
+          <span style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9" }}>{selectedUser.username}'s Tier Lists</span>
+          <span style={{ fontSize: 13, color: "#475569" }}>{userVersions.length} list{userVersions.length !== 1 ? "s" : ""}</span>
+        </div>
+        {userVersions.length === 0
+          ? <div style={{ textAlign: "center", color: "#475569", padding: 40 }}>No tier lists yet.</div>
+          : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+              {userVersions.map(v => {
+                const tmpl = templates.find(t => t.id === v.template_id);
+                const totalEntries = (v.tiers || []).reduce((s, t) => s + (t.items || []).length, 0) + (v.unranked || []).length;
+                const isOwn = v.user_id === myUserId;
+                return (
+                  <div key={v.id} onClick={() => isOwn ? onOpenCustom(v) : null}
+                    style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 8, padding: 16, cursor: isOwn ? "pointer" : "default" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#e2e8f0", marginBottom: 4 }}>{v.name}</div>
+                    {tmpl && <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>Based on: {tmpl.name}</div>}
+                    {v.is_custom && <div style={{ fontSize: 11, color: "#60a5fa", marginBottom: 8 }}>Custom</div>}
+                    <div style={{ fontSize: 11, color: "#475569" }}>{(v.tiers || []).length} tiers · {totalEntries} entries</div>
+                    {(v.tiers || []).slice(0, 3).map(t => (
+                      <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: t.color || "#60a5fa", width: 24 }}>{t.label}</span>
+                        <span style={{ fontSize: 11, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {(t.items || []).slice(0, 3).join(", ")}{(t.items || []).length > 3 ? "..." : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+        }
+      </div>
+    );
+  }
+
+  // ── Catalog view ────────────────────────────────────────────────────────────
+  return (
+    <div style={{ maxWidth: 1100, margin: "28px auto", padding: "0 16px", fontFamily: F }}>
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+        {/* Main catalog */}
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "#60a5fa" }}>TEMPLATE CATALOG</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={onCreateCustom}
+                style={{ background: "none", border: "1px solid #1e2d3d", color: "#94a3b8", padding: "7px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: F, borderRadius: 6 }}>
+                + Custom List
+              </button>
+              <button onClick={() => setView("create_template")}
+                style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "7px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: F, borderRadius: 6 }}>
+                + New Template
+              </button>
+            </div>
+          </div>
+          {templates.length === 0
+            ? <div style={{ textAlign: "center", color: "#475569", padding: 60, background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10 }}>
+                No templates yet. Create the first one!
+              </div>
+            : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+                {templates.map(t => {
+                  const versionCount = versions.filter(v => v.template_id === t.id).length;
+                  const myVersion = versions.find(v => v.template_id === t.id && v.user_id === myUserId);
+                  return (
+                    <div key={t.id} onClick={() => onOpenTemplate(t)}
+                      style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 8, padding: 16, cursor: "pointer" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: "#e2e8f0" }}>{t.name}</div>
+                        {myVersion && <span style={{ fontSize: 10, color: "#34d399", background: "#14532d", padding: "2px 8px", borderRadius: 10, flexShrink: 0, marginLeft: 8 }}>Ranked</span>}
+                      </div>
+                      {t.description && <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8, lineHeight: 1.4 }}>{t.description}</div>}
+                      <div style={{ fontSize: 11, color: "#475569", marginBottom: 6 }}>by {t.username} · {(t.entries || []).length} entries · {versionCount} version{versionCount !== 1 ? "s" : ""}</div>
+                      {(t.tags || []).length > 0 && (
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          {t.tags.map(tag => (
+                            <span key={tag} style={{ fontSize: 10, color: "#60a5fa", background: "#1e2d3d", padding: "2px 8px", borderRadius: 10 }}>{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+          }
+        </div>
+
+        {/* Users sidebar */}
+        <div style={{ width: 220, flexShrink: 0 }}>
+          <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10, padding: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 12 }}>BROWSE BY USER</div>
+            {profiles.map(p => {
+              const count = versions.filter(v => v.user_id === p.id).length;
+              return (
+                <div key={p.id} onClick={() => { setSelectedUser(p); setView("user"); }}
+                  style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #1a2535", cursor: "pointer" }}>
+                  <span style={{ fontSize: 13, color: p.id === myUserId ? "#60a5fa" : "#94a3b8", fontWeight: 500 }}>
+                    {p.username}{p.is_admin ? " ★" : ""}
+                  </span>
+                  <span style={{ fontSize: 12, color: "#334155" }}>{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Shared input style ────────────────────────────────────────────────────────
+const IS = { background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "9px 12px", fontSize: 13, fontFamily: "'Inter', system-ui, sans-serif", borderRadius: 6, outline: "none", boxSizing: "border-box" };
+
+// ─── TIER LIST EDITOR ─────────────────────────────────────────────────────────
+function TierListEditor({ mode, template, version, myUserId, myUsername, allVersions, suggestions, onSave, onDelete, onDeleteTemplate, onUpdateTemplate, onSuggestEntry, onApproveSuggestion, onRejectSuggestion, onBack }) {
+  const F = "'Inter', system-ui, sans-serif";
+  const isOwner = !version || version.user_id === myUserId;
+  const isTemplateOwner = template && template.user_id === myUserId;
+
+  // Initialize tiers and entries
+  const initTiers = version?.tiers || [];
+  const initUnranked = version?.unranked || (template ? [...(template.entries || [])] : []);
+  const initName = version?.name || template?.name || "";
+
+  const [name, setName]           = useState(initName);
+  const [tiers, setTiers]         = useState(initTiers);
+  const [unranked, setUnranked]   = useState(initUnranked);
+  const [dirty, setDirty]         = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [dragging, setDragging]   = useState(null); // { item, fromTier, fromIndex }
+  const [dragOver, setDragOver]   = useState(null); // { tierId, index }
+  const [newTierLabel, setNewTierLabel] = useState("");
+  const [newTierColor, setNewTierColor] = useState("#60a5fa");
+  const [newEntry, setNewEntry]   = useState("");
+  const [suggestEntry, setSuggestEntry] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [editingTier, setEditingTier] = useState(null); // tierId
+  const [editTierLabel, setEditTierLabel] = useState("");
+  const [editTierColor, setEditTierColor] = useState("");
+  const [showAddEntry, setShowAddEntry] = useState(false);
+  const [templateEditEntry, setTemplateEditEntry] = useState("");
+
+  const TIER_COLORS = ["#ef4444","#f97316","#f59e0b","#84cc16","#22c55e","#14b8a6","#06b6d4","#3b82f6","#8b5cf6","#ec4899","#94a3b8"];
+
+  const mark = () => setDirty(true);
+
+  // ── Drag and drop ──────────────────────────────────────────────────────────
+  const handleDragStart = (item, fromTier, fromIndex) => {
+    setDragging({ item, fromTier, fromIndex });
+  };
+
+  const handleDrop = (toTierId, toIndex) => {
+    if (!dragging) return;
+    const { item, fromTier } = dragging;
+
+    setTiers(prev => {
+      const next = prev.map(t => ({ ...t, items: [...(t.items || [])] }));
+      // Remove from source
+      if (fromTier === "__unranked__") {
+        setUnranked(u => u.filter(i => i !== item));
+      } else {
+        const src = next.find(t => t.id === fromTier);
+        if (src) src.items = src.items.filter(i => i !== item);
+      }
+      // Add to destination
+      if (toTierId === "__unranked__") {
+        setUnranked(u => { const nu = u.filter(i => i !== item); nu.splice(toIndex, 0, item); return nu; });
+        return next;
+      }
+      const dst = next.find(t => t.id === toTierId);
+      if (dst) { dst.items = dst.items.filter(i => i !== item); dst.items.splice(toIndex, 0, item); }
+      return next;
+    });
+    setDragging(null); setDragOver(null); mark();
+  };
+
+  const handleDropUnranked = (toIndex) => {
+    if (!dragging) return;
+    const { item, fromTier } = dragging;
+    if (fromTier !== "__unranked__") {
+      setTiers(prev => prev.map(t => t.id === fromTier ? { ...t, items: (t.items||[]).filter(i => i !== item) } : t));
+    }
+    setUnranked(prev => { const next = prev.filter(i => i !== item); next.splice(toIndex, 0, item); return next; });
+    setDragging(null); setDragOver(null); mark();
+  };
+
+  // ── Tier management ────────────────────────────────────────────────────────
+  const addTier = () => {
+    if (!newTierLabel.trim()) return;
+    setTiers(prev => [...prev, { id: Date.now().toString(), label: newTierLabel.trim(), color: newTierColor, items: [] }]);
+    setNewTierLabel(""); mark();
+  };
+
+  const removeTier = (tierId) => {
+    const tier = tiers.find(t => t.id === tierId);
+    setUnranked(prev => [...prev, ...(tier?.items || [])]);
+    setTiers(prev => prev.filter(t => t.id !== tierId)); mark();
+  };
+
+  const moveTierUp = (i) => {
+    if (i === 0) return;
+    setTiers(prev => { const n = [...prev]; [n[i-1], n[i]] = [n[i], n[i-1]]; return n; }); mark();
+  };
+  const moveTierDown = (i) => {
+    if (i === tiers.length - 1) return;
+    setTiers(prev => { const n = [...prev]; [n[i], n[i+1]] = [n[i+1], n[i]]; return n; }); mark();
+  };
+
+  const saveEditTier = (tierId) => {
+    setTiers(prev => prev.map(t => t.id === tierId ? { ...t, label: editTierLabel, color: editTierColor } : t));
+    setEditingTier(null); mark();
+  };
+
+  // ── Entry management ───────────────────────────────────────────────────────
+  const addEntry = () => {
+    if (!newEntry.trim()) return;
+    setUnranked(prev => [...prev, newEntry.trim()]);
+    setNewEntry(""); mark();
+  };
+
+  const removeEntry = (item, tierId) => {
+    if (tierId === "__unranked__") setUnranked(prev => prev.filter(i => i !== item));
+    else setTiers(prev => prev.map(t => t.id === tierId ? { ...t, items: (t.items||[]).filter(i => i !== item) } : t));
+    mark();
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try { await onSave(tiers, unranked, name, mode === "custom"); setDirty(false); }
+    finally { setSaving(false); }
+  };
+
+  const pendingSuggestions = (suggestions || []).filter(s => s.status === "pending");
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0f1623", color: "#e2e8f0", fontFamily: F }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 24px", borderBottom: "1px solid #1e2d3d", background: "#0b1118", position: "sticky", top: 0, zIndex: 100, flexWrap: "wrap" }}>
+        <button onClick={onBack} style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }}>← Back</button>
+        <input value={name} onChange={e => { setName(e.target.value); mark(); }}
+          disabled={!isOwner}
+          style={{ ...IS, fontSize: 16, fontWeight: 700, background: "none", border: isOwner ? "1px solid #1e2d3d" : "none", flex: 1, minWidth: 200, color: "#f1f5f9" }} />
+        {template && <span style={{ fontSize: 12, color: "#475569" }}>Template: {template.name}</span>}
+        <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+          {isTemplateOwner && pendingSuggestions.length > 0 && (
+            <button onClick={() => setShowSuggestions(s => !s)}
+              style={{ background: "#f59e0b", border: "none", color: "#000", padding: "7px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: F, borderRadius: 6 }}>
+              {pendingSuggestions.length} Suggestion{pendingSuggestions.length !== 1 ? "s" : ""}
+            </button>
+          )}
+          {isOwner && version && (
+            <button onClick={onDelete}
+              style={{ background: "none", border: "1px solid #7f1d1d", color: "#f87171", padding: "7px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }}>
+              Delete
+            </button>
+          )}
+          {isOwner && (
+            <button onClick={handleSave} disabled={saving || !dirty}
+              style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "7px 18px", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6, opacity: (dirty && !saving) ? 1 : 0.4 }}>
+              {saving ? "Saving..." : "Save"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Suggestions panel */}
+      {showSuggestions && isTemplateOwner && (
+        <div style={{ background: "#131d2e", borderBottom: "1px solid #1e2d3d", padding: "16px 24px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: "#f59e0b", marginBottom: 12 }}>PENDING SUGGESTIONS</div>
+          {pendingSuggestions.map(s => (
+            <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: "1px solid #1a2535" }}>
+              <span style={{ flex: 1, fontSize: 13, color: "#cbd5e1" }}>"{s.entry}" <span style={{ color: "#475569" }}>by {s.username}</span></span>
+              <button onClick={() => onApproveSuggestion(s)}
+                style={{ background: "#14532d", border: "1px solid #166534", color: "#4ade80", padding: "4px 12px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 5 }}>✓ Add</button>
+              <button onClick={() => onRejectSuggestion(s)}
+                style={{ background: "#450a0a", border: "1px solid #7f1d1d", color: "#f87171", padding: "4px 12px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 5 }}>✕ Reject</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ padding: "20px 24px", display: "flex", gap: 20, alignItems: "flex-start" }}>
+        {/* Main tier list */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Tiers */}
+          {tiers.map((tier, ti) => (
+            <div key={tier.id} style={{ marginBottom: 6 }}
+              onDragOver={e => { e.preventDefault(); setDragOver({ tierId: tier.id, index: (tier.items||[]).length }); }}
+              onDrop={() => handleDrop(tier.id, (tier.items||[]).length)}>
+              <div style={{ display: "flex", alignItems: "stretch", minHeight: 52, border: "1px solid #1e2d3d", borderRadius: 6, overflow: "hidden" }}>
+                {/* Tier label */}
+                {editingTier === tier.id ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "#0b1118", borderRight: "1px solid #1e2d3d", minWidth: 140 }}>
+                    <input value={editTierLabel} onChange={e => setEditTierLabel(e.target.value)}
+                      style={{ ...IS, width: 60, fontSize: 14, fontWeight: 700, padding: "4px 6px" }} />
+                    <input type="color" value={editTierColor} onChange={e => setEditTierColor(e.target.value)}
+                      style={{ width: 28, height: 28, border: "none", background: "none", cursor: "pointer", padding: 0 }} />
+                    <button onClick={() => saveEditTier(tier.id)}
+                      style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "3px 8px", cursor: "pointer", fontSize: 11, fontFamily: F, borderRadius: 4 }}>✓</button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 10px", background: `${tier.color}18`, borderRight: `3px solid ${tier.color}`, minWidth: 64, cursor: isOwner ? "pointer" : "default" }}
+                    onClick={() => { if (!isOwner) return; setEditingTier(tier.id); setEditTierLabel(tier.label); setEditTierColor(tier.color); }}>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: tier.color, minWidth: 32, textAlign: "center" }}>{tier.label}</span>
+                  </div>
+                )}
+
+                {/* Items */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "6px 8px", flex: 1, alignContent: "flex-start", minHeight: 52, background: `${tier.color}08` }}>
+                  {(tier.items || []).map((item, idx) => (
+                    <div key={`${item}-${idx}`}
+                      draggable={isOwner}
+                      onDragStart={() => handleDragStart(item, tier.id, idx)}
+                      onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragOver({ tierId: tier.id, index: idx }); }}
+                      onDrop={e => { e.stopPropagation(); handleDrop(tier.id, idx); }}
+                      style={{ background: "#1e2d3d", border: `1px solid ${dragOver?.tierId === tier.id && dragOver?.index === idx ? tier.color : "#334155"}`,
+                        borderRadius: 4, padding: "4px 10px", fontSize: 13, color: "#e2e8f0",
+                        cursor: isOwner ? "grab" : "default", display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
+                      {item}
+                      {isOwner && <span onClick={() => removeEntry(item, tier.id)} style={{ color: "#475569", cursor: "pointer", fontSize: 11 }}>×</span>}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tier controls */}
+                {isOwner && (
+                  <div style={{ display: "flex", flexDirection: "column", borderLeft: "1px solid #1e2d3d", background: "#0b1118" }}>
+                    <button onClick={() => moveTierUp(ti)} style={{ flex: 1, background: "none", border: "none", color: "#475569", cursor: "pointer", padding: "0 8px", fontSize: 12 }}>▲</button>
+                    <button onClick={() => moveTierDown(ti)} style={{ flex: 1, background: "none", border: "none", color: "#475569", cursor: "pointer", padding: "0 8px", fontSize: 12 }}>▼</button>
+                    <button onClick={() => removeTier(tier.id)} style={{ flex: 1, background: "none", border: "none", color: "#475569", cursor: "pointer", padding: "0 8px", fontSize: 12 }}>✕</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Add tier */}
+          {isOwner && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+              <input value={newTierLabel} onChange={e => setNewTierLabel(e.target.value)}
+                style={{ ...IS, width: 80 }} placeholder="Label"
+                onKeyDown={e => e.key === "Enter" && addTier()} />
+              <input type="color" value={newTierColor} onChange={e => setNewTierColor(e.target.value)}
+                style={{ width: 36, height: 36, border: "1px solid #1e2d3d", background: "none", cursor: "pointer", borderRadius: 6, padding: 2 }} />
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {TIER_COLORS.map(c => (
+                  <div key={c} onClick={() => setNewTierColor(c)}
+                    style={{ width: 20, height: 20, borderRadius: 4, background: c, cursor: "pointer", border: newTierColor === c ? "2px solid #fff" : "2px solid transparent" }} />
+                ))}
+              </div>
+              <button onClick={addTier} disabled={!newTierLabel.trim()}
+                style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "8px 16px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: F, borderRadius: 6, opacity: newTierLabel.trim() ? 1 : 0.4 }}>
+                + Tier
+              </button>
+            </div>
+          )}
+
+          {/* Unranked pool */}
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#475569", marginBottom: 8 }}>UNRANKED</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, minHeight: 52, padding: 10, background: "#0b1118", border: "1px solid #1e2d3d", borderRadius: 6 }}
+              onDragOver={e => { e.preventDefault(); setDragOver({ tierId: "__unranked__", index: unranked.length }); }}
+              onDrop={() => handleDropUnranked(unranked.length)}>
+              {unranked.map((item, idx) => (
+                <div key={`${item}-${idx}`}
+                  draggable={isOwner}
+                  onDragStart={() => handleDragStart(item, "__unranked__", idx)}
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragOver({ tierId: "__unranked__", index: idx }); }}
+                  onDrop={e => { e.stopPropagation(); handleDropUnranked(idx); }}
+                  style={{ background: "#1e2d3d", border: "1px solid #334155", borderRadius: 4, padding: "4px 10px", fontSize: 13, color: "#94a3b8", cursor: isOwner ? "grab" : "default", display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
+                  {item}
+                  {isOwner && <span onClick={() => removeEntry(item, "__unranked__")} style={{ color: "#475569", cursor: "pointer", fontSize: 11 }}>×</span>}
+                </div>
+              ))}
+              {unranked.length === 0 && <span style={{ fontSize: 12, color: "#334155" }}>Drag items here to unrank them</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Right panel */}
+        <div style={{ width: 240, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Add entry (own list or custom) */}
+          {isOwner && (mode === "custom" || !template) && (
+            <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 8 }}>ADD ENTRY</div>
+              <input style={{ ...IS, width: "100%", marginBottom: 8 }} placeholder="Entry name"
+                value={newEntry} onChange={e => setNewEntry(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && addEntry()} />
+              <button onClick={addEntry} disabled={!newEntry.trim()}
+                style={{ width: "100%", background: "#3b82f6", border: "none", color: "#fff", padding: "8px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: F, borderRadius: 6, opacity: newEntry.trim() ? 1 : 0.4 }}>
+                Add
+              </button>
+            </div>
+          )}
+
+          {/* Suggest entry to template */}
+          {template && !isTemplateOwner && (
+            <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 8 }}>SUGGEST ENTRY</div>
+              <input style={{ ...IS, width: "100%", marginBottom: 8 }} placeholder="Suggest an entry"
+                value={suggestEntry} onChange={e => setSuggestEntry(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && suggestEntry.trim() && onSuggestEntry(suggestEntry, "add_entry")} />
+              <button onClick={() => { onSuggestEntry(suggestEntry, "add_entry"); setSuggestEntry(""); }} disabled={!suggestEntry.trim()}
+                style={{ width: "100%", background: "none", border: "1px solid #3b82f6", color: "#60a5fa", padding: "8px", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: F, borderRadius: 6, opacity: suggestEntry.trim() ? 1 : 0.4 }}>
+                Submit Suggestion
+              </button>
+            </div>
+          )}
+
+          {/* Template owner: add entry directly */}
+          {isTemplateOwner && (
+            <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 8 }}>ADD TO TEMPLATE</div>
+              <input style={{ ...IS, width: "100%", marginBottom: 8 }} placeholder="New entry"
+                value={templateEditEntry} onChange={e => setTemplateEditEntry(e.target.value)}
+                onKeyDown={async e => {
+                  if (e.key === "Enter" && templateEditEntry.trim()) {
+                    const newEntries = [...(template.entries||[]), templateEditEntry.trim()];
+                    await onUpdateTemplate({ entries: newEntries });
+                    setUnranked(prev => [...prev, templateEditEntry.trim()]);
+                    setTemplateEditEntry(""); mark();
+                  }
+                }} />
+              <button onClick={async () => {
+                if (!templateEditEntry.trim()) return;
+                const newEntries = [...(template.entries||[]), templateEditEntry.trim()];
+                await onUpdateTemplate({ entries: newEntries });
+                setUnranked(prev => [...prev, templateEditEntry.trim()]);
+                setTemplateEditEntry(""); mark();
+              }} disabled={!templateEditEntry.trim()}
+                style={{ width: "100%", background: "#3b82f6", border: "none", color: "#fff", padding: "8px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: F, borderRadius: 6, opacity: templateEditEntry.trim() ? 1 : 0.4 }}>
+                Add to Template
+              </button>
+            </div>
+          )}
+
+          {/* Other users' versions of this template */}
+          {template && (
+            <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "#60a5fa", marginBottom: 8 }}>OTHER VERSIONS</div>
+              {allVersions.filter(v => v.template_id === template.id && v.user_id !== myUserId).length === 0
+                ? <div style={{ fontSize: 12, color: "#334155" }}>None yet</div>
+                : allVersions.filter(v => v.template_id === template.id && v.user_id !== myUserId).map(v => (
+                  <div key={v.id} style={{ fontSize: 13, color: "#94a3b8", padding: "5px 0", borderBottom: "1px solid #1a2535" }}>
+                    {v.username}
+                    <span style={{ fontSize: 11, color: "#475569", marginLeft: 8 }}>{(v.tiers||[]).length} tiers</span>
+                  </div>
+                ))
+              }
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
