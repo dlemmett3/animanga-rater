@@ -2931,7 +2931,15 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
   const [showAddEntry, setShowAddEntry] = useState(false);
   const [templateEditEntry, setTemplateEditEntry] = useState("");
 
-  const TIER_COLORS = ["#ef4444","#f97316","#f59e0b","#84cc16","#22c55e","#14b8a6","#06b6d4","#3b82f6","#8b5cf6","#ec4899","#94a3b8"];
+  const TIER_COLORS = [
+    "#ef4444","#dc2626","#f97316","#ea580c","#f59e0b","#d97706",
+    "#84cc16","#65a30d","#22c55e","#16a34a","#14b8a6","#0d9488",
+    "#06b6d4","#0891b2","#3b82f6","#2563eb","#6366f1","#4f46e5",
+    "#8b5cf6","#7c3aed","#ec4899","#db2777","#f43f5e","#e11d48",
+    "#f87171","#fb923c","#fbbf24","#a3e635","#4ade80","#2dd4bf",
+    "#22d3ee","#60a5fa","#818cf8","#a78bfa","#f472b6","#fb7185",
+    "#94a3b8","#64748b","#475569","#ffffff","#000000",
+  ];
 
   const mark = () => setDirty(true);
 
@@ -3134,10 +3142,11 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
                 onKeyDown={e => e.key === "Enter" && addTier()} />
               <input type="color" value={newTierColor} onChange={e => setNewTierColor(e.target.value)}
                 style={{ width: 36, height: 36, border: "1px solid #1e2d3d", background: "none", cursor: "pointer", borderRadius: 6, padding: 2 }} />
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 2, flexWrap: "wrap", maxWidth: 280, maxHeight: 70, overflowY: "auto", padding: 4, background: "#0b1118", border: "1px solid #1e2d3d", borderRadius: 6 }}>
                 {TIER_COLORS.map(c => (
                   <div key={c} onClick={() => setNewTierColor(c)}
-                    style={{ width: 20, height: 20, borderRadius: 4, background: c, cursor: "pointer", border: newTierColor === c ? "2px solid #fff" : "2px solid transparent" }} />
+                    style={{ width: 16, height: 16, borderRadius: 2, background: c, cursor: "pointer", flexShrink: 0,
+                      border: newTierColor === c ? "2px solid #fff" : "2px solid transparent", boxSizing: "border-box" }} />
                 ))}
               </div>
               <button onClick={addTier} disabled={!newTierLabel.trim()}
@@ -3255,7 +3264,40 @@ function EntrySourceMapper({ entries, entryMeta, sourceColors, onUpdate, existin
   const F = "'Inter', system-ui, sans-serif";
   const [newSourceName, setNewSourceName] = useState("");
   const [newSourceColor, setNewSourceColor] = useState("#60a5fa");
-  const PALETTE = ["#ef4444","#f97316","#f59e0b","#84cc16","#22c55e","#14b8a6","#06b6d4","#3b82f6","#8b5cf6","#ec4899","#f472b6","#94a3b8"];
+  const PALETTE = [
+    // Reds
+    "#ef4444","#dc2626","#b91c1c","#f87171","#fca5a5",
+    // Oranges
+    "#f97316","#ea580c","#c2410c","#fb923c","#fdba74",
+    // Yellows
+    "#f59e0b","#d97706","#b45309","#fbbf24","#fde68a",
+    // Limes
+    "#84cc16","#65a30d","#4d7c0f","#a3e635","#d9f99d",
+    // Greens
+    "#22c55e","#16a34a","#15803d","#4ade80","#86efac",
+    // Teals
+    "#14b8a6","#0d9488","#0f766e","#2dd4bf","#99f6e4",
+    // Cyans
+    "#06b6d4","#0891b2","#0e7490","#22d3ee","#a5f3fc",
+    // Blues
+    "#3b82f6","#2563eb","#1d4ed8","#60a5fa","#93c5fd",
+    // Indigos
+    "#6366f1","#4f46e5","#4338ca","#818cf8","#a5b4fc",
+    // Violets
+    "#8b5cf6","#7c3aed","#6d28d9","#a78bfa","#c4b5fd",
+    // Pinks
+    "#ec4899","#db2777","#be185d","#f472b6","#f9a8d4",
+    // Roses
+    "#f43f5e","#e11d48","#be123c","#fb7185","#fda4af",
+    // Neutrals
+    "#94a3b8","#64748b","#475569","#cbd5e1","#e2e8f0",
+    "#a1a1aa","#71717a","#52525b","#d4d4d8","#f4f4f5",
+    "#a3a3a3","#737373","#525252","#d4d4d4","#f5f5f5",
+    // Browns/ambers
+    "#92400e","#78350f","#b45309","#d97706","#f59e0b",
+    // Special
+    "#ffffff","#000000","#1e293b","#0f172a","#334155",
+  ];
 
   const addSource = () => {
     if (!newSourceName.trim()) return;
@@ -3303,11 +3345,12 @@ function EntrySourceMapper({ entries, entryMeta, sourceColors, onUpdate, existin
             onKeyDown={e => e.key === "Enter" && addSource()} />
           <input type="color" value={newSourceColor} onChange={e => setNewSourceColor(e.target.value)}
             style={{ width: 32, height: 32, border: "1px solid #1e2d3d", background: "none", cursor: "pointer", borderRadius: 6, padding: 2 }} />
-          <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 2, flexWrap: "wrap", maxWidth: 320, maxHeight: 80, overflowY: "auto", padding: 4, background: "#0b1118", border: "1px solid #1e2d3d", borderRadius: 6 }}>
             {PALETTE.map(c => (
               <div key={c} onClick={() => setNewSourceColor(c)}
-                style={{ width: 18, height: 18, borderRadius: 3, background: c, cursor: "pointer",
-                  border: newSourceColor === c ? "2px solid #fff" : "2px solid transparent" }} />
+                style={{ width: 16, height: 16, borderRadius: 2, background: c, cursor: "pointer", flexShrink: 0,
+                  border: newSourceColor === c ? "2px solid #fff" : "2px solid transparent",
+                  boxSizing: "border-box" }} />
             ))}
           </div>
           <button onClick={addSource} disabled={!newSourceName.trim()}
