@@ -3048,7 +3048,9 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
             </button>
           )}
           {isOwner && version && (
-            <button onClick={onDelete}
+            <button onClick={() => {
+                if (window.confirm(`Delete "${name}"? This cannot be undone.`)) onDelete();
+              }}
               style={{ background: "none", border: "1px solid #7f1d1d", color: "#f87171", padding: "7px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }}>
               Delete
             </button>
