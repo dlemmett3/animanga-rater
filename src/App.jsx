@@ -3323,6 +3323,22 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
               Edit Template
             </button>
           )}
+          {isOwner && (
+            <button onClick={() => {
+                if (window.confirm("Move all entries back to Unranked? Your tiers will be kept but emptied.")) {
+                  const allItems = [
+                    ...unranked,
+                    ...tiers.flatMap(t => t.items || []),
+                  ];
+                  setTiers(prev => prev.map(t => ({ ...t, items: [] })));
+                  setUnranked(allItems);
+                  mark();
+                }
+              }}
+              style={{ background: "none", border: "1px solid #1e2d3d", color: "#94a3b8", padding: "7px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }}>
+              Reset to Unranked
+            </button>
+          )}
           {isOwner && version && (
             <button onClick={() => {
                 if (window.confirm(`Delete "${name}"? This cannot be undone.`)) onDelete();
