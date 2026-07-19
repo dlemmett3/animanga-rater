@@ -3039,8 +3039,19 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
   const isViewOnly = mode === "view_other";
 
   // Initialize tiers and entries
+  // Sync: ensure any template entries not yet placed appear in unranked
   const initTiers = version?.tiers || [];
-  const initUnranked = version?.unranked || (template ? [...(template.entries || [])] : []);
+  const allPlaced = new Set([
+    ...(version?.unranked || []),
+    ...(version?.tiers || []).flatMap(t => t.items || []),
+  ]);
+  const templateEntries = template?.entries || [];
+  const missingEntries = version
+    ? templateEntries.filter(e => !allPlaced.has(e))
+    : [];
+  const initUnranked = version
+    ? [...(version.unranked || []), ...missingEntries]
+    : (template ? [...templateEntries] : []);
   const initName = version?.name || template?.name || "";
 
   const [name, setName]           = useState(initName);
