@@ -3051,7 +3051,52 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
   const [dragging, setDragging]   = useState(null);
   const [dragOver, setDragOver]   = useState(null);
   const [selectedEntries, setSelectedEntries] = useState(new Set());
-  const [showTierPicker, setShowTierPicker] = useState(false); // show tier picker dropdown
+  const [showTierPicker, setShowTierPicker] = useState(false);
+  const autoScrollRef = React.useRef(null);
+
+  // Auto-scroll when dragging near screen edges
+  useEffect(() => {
+    const handleDragOver = (e) => {
+      if (!dragging) return;
+      const ZONE = 120; // px from edge to trigger scroll
+      const SPEED = 12; // px per frame
+      const { clientY } = e;
+      const { innerHeight } = window;
+
+      if (autoScrollRef.current) {
+        cancelAnimationFrame(autoScrollRef.current);
+        autoScrollRef.current = null;
+      }
+
+      const scroll = () => {
+        if (clientY < ZONE) {
+          window.scrollBy(0, -SPEED);
+          autoScrollRef.current = requestAnimationFrame(scroll);
+        } else if (clientY > innerHeight - ZONE) {
+          window.scrollBy(0, SPEED);
+          autoScrollRef.current = requestAnimationFrame(scroll);
+        }
+      };
+      scroll();
+    };
+
+    const handleDragEnd = () => {
+      if (autoScrollRef.current) {
+        cancelAnimationFrame(autoScrollRef.current);
+        autoScrollRef.current = null;
+      }
+    };
+
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("dragend", handleDragEnd);
+    window.addEventListener("drop", handleDragEnd);
+    return () => {
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("dragend", handleDragEnd);
+      window.removeEventListener("drop", handleDragEnd);
+      if (autoScrollRef.current) cancelAnimationFrame(autoScrollRef.current);
+    };
+  }, [dragging]);
   const [newTierLabel, setNewTierLabel] = useState("");
   const [newTierColor, setNewTierColor] = useState("#60a5fa");
   const [newEntry, setNewEntry]   = useState("");
