@@ -720,7 +720,8 @@ export default function App() {
   const [tierlistTemplates, setTierlistTemplates] = useState([]);
   const [tierlistVersions, setTierlistVersions]   = useState([]);
   const [tierlistSuggestions, setTierlistSuggestions] = useState([]);
-  const [activeTierlist, setActiveTierlist]       = useState(null); // { mode, template, version }
+  const [activeTierlist, setActiveTierlist]       = useState(null);
+  const [templateToEdit, setTemplateToEdit]       = useState(null);
   const [arcs, setArcs]                 = useState([]);
   const [pendingArcs, setPendingArcs]   = useState([]);
   const [allArcRatings, setAllArcRatings] = useState([]);
@@ -1196,6 +1197,12 @@ export default function App() {
           showToast("Rejected");
         } catch { showToast("Failed", "err"); }
       }}
+      onEditTemplate={activeTierlist?.template?.user_id === session?.userId ? () => {
+        const tmpl = activeTierlist.template;
+        setActiveTierlist(null);
+        setMainTab("tierlists");
+        setTemplateToEdit(tmpl);
+      } : null}
       onBack={() => setActiveTierlist(null)}
     />
   );
@@ -1445,11 +1452,20 @@ export default function App() {
           profiles={profiles}
           myUserId={session?.userId}
           myUsername={session?.username}
+          templateToEdit={templateToEdit}
+          onClearTemplateToEdit={() => setTemplateToEdit(null)}
           onCreateTemplate={async (name, description, tags, entries, entryMeta, sourceColors) => {
             try {
               await createTemplate(session.token, session.userId, session.username, name, description, tags, entries, entryMeta, sourceColors);
               await loadAll(session);
               showToast("Template created");
+            } catch { showToast("Failed", "err"); }
+          }}
+          onUpdateTemplate={async (id, updates) => {
+            try {
+              await updateTemplate(session.token, id, updates);
+              await loadAll(session);
+              showToast("Template updated");
             } catch { showToast("Failed", "err"); }
           }}
           onOpenTemplate={(template) => {
@@ -2770,12 +2786,30 @@ function ArcSuggestPanel({ titles, onSuggest }) {
 }
 
 // ─── TIER LIST BROWSER ────────────────────────────────────────────────────────
-function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, onCreateTemplate, onOpenTemplate, onOpenCustom, onCreateCustom, onViewOtherList }) {
+function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, onCreateTemplate, onUpdateTemplate, onOpenTemplate, onOpenCustom, onCreateCustom, onViewOtherList, templateToEdit, onClearTemplateToEdit }) {
   const F = "'Inter', system-ui, sans-serif";
-  const [view, setView] = useState("catalog"); // catalog | create_template | user
+  const [view, setView] = useState("catalog");
   const [selectedUser, setSelectedUser] = useState(null);
   const [createForm, setCreateForm] = useState({ name: "", description: "", tags: "", entries: "", entryMeta: {}, sourceColors: {} });
   const [creating, setCreating] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+
+  // Auto-open template editor when parent signals
+  useEffect(() => {
+    if (templateToEdit) {
+      setEditingTemplate(templateToEdit);
+      setCreateForm({
+        name: templateToEdit.name,
+        description: templateToEdit.description || "",
+        tags: (templateToEdit.tags || []).join(", "),
+        entries: (templateToEdit.entries || []).join("\n"),
+        entryMeta: templateToEdit.entry_meta || {},
+        sourceColors: templateToEdit.source_colors || {},
+      });
+      setView("create_template");
+      onClearTemplateToEdit?.();
+    }
+  }, [templateToEdit]);
 
   const handleCreate = async () => {
     if (!createForm.name.trim()) return;
@@ -2783,10 +2817,34 @@ function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, 
     try {
       const tags = createForm.tags.split(",").map(t => t.trim()).filter(Boolean);
       const entries = createForm.entries.split("\n").map(e => e.trim()).filter(Boolean);
-      await onCreateTemplate(createForm.name.trim(), createForm.description.trim(), tags, entries, createForm.entryMeta, createForm.sourceColors);
-      setCreateForm({ name: "", description: "", tags: "", entries: "" });
+      if (editingTemplate) {
+        await onUpdateTemplate(editingTemplate.id, {
+          name: createForm.name.trim(),
+          description: createForm.description.trim(),
+          tags, entries,
+          entry_meta: createForm.entryMeta,
+          source_colors: createForm.sourceColors,
+        });
+        setEditingTemplate(null);
+      } else {
+        await onCreateTemplate(createForm.name.trim(), createForm.description.trim(), tags, entries, createForm.entryMeta, createForm.sourceColors);
+      }
+      setCreateForm({ name: "", description: "", tags: "", entries: "", entryMeta: {}, sourceColors: {} });
       setView("catalog");
     } finally { setCreating(false); }
+  };
+
+  const openTemplateEditor = (template) => {
+    setEditingTemplate(template);
+    setCreateForm({
+      name: template.name,
+      description: template.description || "",
+      tags: (template.tags || []).join(", "),
+      entries: (template.entries || []).join("\n"),
+      entryMeta: template.entry_meta || {},
+      sourceColors: template.source_colors || {},
+    });
+    setView("create_template");
   };
 
   if (view === "create_template") return (
@@ -2796,7 +2854,7 @@ function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, 
           style={{ background: "none", border: "1px solid #1e2d3d", color: "#64748b", padding: "6px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }}>
           ← Back
         </button>
-        <span style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9" }}>Create Template</span>
+        <span style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9" }}>{editingTemplate ? "Edit Template" : "Create Template"}</span>
       </div>
       <div style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 10, padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
         <div>
@@ -2845,7 +2903,7 @@ function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, 
 
         <button onClick={handleCreate} disabled={creating || !createForm.name.trim()}
           style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "11px", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6, opacity: createForm.name.trim() ? 1 : 0.4 }}>
-          {creating ? "Creating..." : "Create Template"}
+          {creating ? "Saving..." : editingTemplate ? "Save Changes" : "Create Template"}
         </button>
       </div>
     </div>
@@ -2974,7 +3032,7 @@ function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, 
 const IS = { background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0", padding: "9px 12px", fontSize: 13, fontFamily: "'Inter', system-ui, sans-serif", borderRadius: 6, outline: "none", boxSizing: "border-box" };
 
 // ─── TIER LIST EDITOR ─────────────────────────────────────────────────────────
-function TierListEditor({ mode, template, version, myUserId, myUsername, allVersions, suggestions, onSave, onDelete, onDeleteTemplate, onUpdateTemplate, onSuggestEntry, onApproveSuggestion, onRejectSuggestion, onBack }) {
+function TierListEditor({ mode, template, version, myUserId, myUsername, allVersions, suggestions, onSave, onDelete, onDeleteTemplate, onUpdateTemplate, onSuggestEntry, onApproveSuggestion, onRejectSuggestion, onBack, onEditTemplate }) {
   const F = "'Inter', system-ui, sans-serif";
   const isOwner = mode !== "view_other" && (!version || version.user_id === myUserId);
   const isTemplateOwner = mode !== "view_other" && template && template.user_id === myUserId;
@@ -3162,6 +3220,12 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
             <button onClick={() => setShowSuggestions(s => !s)}
               style={{ background: "#f59e0b", border: "none", color: "#000", padding: "7px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: F, borderRadius: 6 }}>
               {pendingSuggestions.length} Suggestion{pendingSuggestions.length !== 1 ? "s" : ""}
+            </button>
+          )}
+          {isTemplateOwner && onEditTemplate && (
+            <button onClick={onEditTemplate}
+              style={{ background: "none", border: "1px solid #1e2d3d", color: "#94a3b8", padding: "7px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }}>
+              Edit Template
             </button>
           )}
           {isOwner && version && (
