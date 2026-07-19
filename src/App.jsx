@@ -1087,6 +1087,42 @@ export default function App() {
 
   if (view === "main" && comparingTitle === "__all__" && viewingUser === null) return null;
 
+  if (view === "main" && activeTierlist?.mode === "view_other") return (
+    <TierListEditor
+      mode="view_other"
+      template={activeTierlist.template}
+      version={activeTierlist.version}
+      myUserId={session?.userId}
+      myUsername={session?.username}
+      allVersions={tierlistVersions}
+      suggestions={[]}
+      onSave={async (tiers, unranked, name, isCustom) => {
+        // Save as own copy
+        const templateId = activeTierlist.template?.id || null;
+        try {
+          await upsertTierlistVersion(session.token, session.userId, session.username, templateId, `${name} (copy)`, isCustom, tiers, unranked, null);
+          await loadAll(session);
+          showToast("Copied to your lists");
+          setActiveTierlist(null);
+        } catch { showToast("Save failed", "err"); }
+      }}
+      onDelete={null}
+      onDeleteTemplate={null}
+      onUpdateTemplate={null}
+      onSuggestEntry={async (entry, type) => {
+        if (!activeTierlist.template) return;
+        try {
+          await submitTierlistSuggestion(session.token, session.userId, session.username, activeTierlist.template.id, type, entry);
+          await loadAll(session);
+          showToast("Suggestion submitted");
+        } catch { showToast("Failed", "err"); }
+      }}
+      onApproveSuggestion={null}
+      onRejectSuggestion={null}
+      onBack={() => setActiveTierlist(null)}
+    />
+  );
+
   if (view === "main" && activeTierlist) return (
     <TierListEditor
       mode={activeTierlist.mode}
@@ -1425,6 +1461,9 @@ export default function App() {
           }}
           onCreateCustom={() => {
             setActiveTierlist({ mode: "custom", template: null, version: null });
+          }}
+          onViewOtherList={(version, template) => {
+            setActiveTierlist({ mode: "view_other", template, version });
           }}
           onViewUserLists={(user) => {
             setActiveTierlist({ mode: "browse_user", template: null, version: null, browseUser: user });
@@ -2731,7 +2770,7 @@ function ArcSuggestPanel({ titles, onSuggest }) {
 }
 
 // ─── TIER LIST BROWSER ────────────────────────────────────────────────────────
-function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, onCreateTemplate, onOpenTemplate, onOpenCustom, onCreateCustom }) {
+function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, onCreateTemplate, onOpenTemplate, onOpenCustom, onCreateCustom, onViewOtherList }) {
   const F = "'Inter', system-ui, sans-serif";
   const [view, setView] = useState("catalog"); // catalog | create_template | user
   const [selectedUser, setSelectedUser] = useState(null);
@@ -2832,8 +2871,11 @@ function TierListBrowser({ templates, versions, profiles, myUserId, myUsername, 
                 const totalEntries = (v.tiers || []).reduce((s, t) => s + (t.items || []).length, 0) + (v.unranked || []).length;
                 const isOwn = v.user_id === myUserId;
                 return (
-                  <div key={v.id} onClick={() => isOwn ? onOpenCustom(v) : null}
-                    style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 8, padding: 16, cursor: isOwn ? "pointer" : "default" }}>
+                  <div key={v.id} onClick={() => {
+                      if (isOwn) { onOpenCustom(v); }
+                      else { onViewOtherList(v, tmpl || null); }
+                    }}
+                    style={{ background: "#131d2e", border: "1px solid #1e2d3d", borderRadius: 8, padding: 16, cursor: "pointer" }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#e2e8f0", marginBottom: 4 }}>{v.name}</div>
                     {tmpl && <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>Based on: {tmpl.name}</div>}
                     {v.is_custom && <div style={{ fontSize: 11, color: "#60a5fa", marginBottom: 8 }}>Custom</div>}
@@ -2934,8 +2976,9 @@ const IS = { background: "#0b1118", border: "1px solid #1e2d3d", color: "#e2e8f0
 // ─── TIER LIST EDITOR ─────────────────────────────────────────────────────────
 function TierListEditor({ mode, template, version, myUserId, myUsername, allVersions, suggestions, onSave, onDelete, onDeleteTemplate, onUpdateTemplate, onSuggestEntry, onApproveSuggestion, onRejectSuggestion, onBack }) {
   const F = "'Inter', system-ui, sans-serif";
-  const isOwner = !version || version.user_id === myUserId;
-  const isTemplateOwner = template && template.user_id === myUserId;
+  const isOwner = mode !== "view_other" && (!version || version.user_id === myUserId);
+  const isTemplateOwner = mode !== "view_other" && template && template.user_id === myUserId;
+  const isViewOnly = mode === "view_other";
 
   // Initialize tiers and entries
   const initTiers = version?.tiers || [];
@@ -3104,6 +3147,17 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
           style={{ ...IS, fontSize: 16, fontWeight: 700, background: "none", border: isOwner ? "1px solid #1e2d3d" : "none", flex: 1, minWidth: 200, color: "#f1f5f9" }} />
         {template && <span style={{ fontSize: 12, color: "#475569" }}>Template: {template.name}</span>}
         <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+          {isViewOnly && (
+            <button onClick={() => {
+                if (window.confirm("Copy this tier list as your own starting point?")) {
+                  onSave(tiers, unranked, name, mode === "custom");
+                }
+              }}
+              style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "7px 16px",
+                cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: F, borderRadius: 6 }}>
+              Copy to My Lists
+            </button>
+          )}
           {isTemplateOwner && pendingSuggestions.length > 0 && (
             <button onClick={() => setShowSuggestions(s => !s)}
               style={{ background: "#f59e0b", border: "none", color: "#000", padding: "7px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: F, borderRadius: 6 }}>
