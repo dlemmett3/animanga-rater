@@ -3079,6 +3079,8 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
   const [selectedEntries, setSelectedEntries] = useState(new Set());
   const [showTierPicker, setShowTierPicker] = useState(false);
   const autoScrollRef = React.useRef(null);
+  const autoSaveTimerRef = React.useRef(null);
+  const [saveStatus, setSaveStatus] = useState("saved"); // "saved" | "pending" | "saving"
 
   // Auto-scroll when dragging near screen edges
   useEffect(() => {
@@ -3123,6 +3125,24 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
       if (autoScrollRef.current) cancelAnimationFrame(autoScrollRef.current);
     };
   }, [dragging]);
+
+  // Auto-save 2 seconds after last change
+  useEffect(() => {
+    if (!dirty || !isOwner) return;
+    setSaveStatus("pending");
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(async () => {
+      setSaveStatus("saving");
+      try {
+        await onSave(tiers, unranked, name, mode === "custom");
+        setDirty(false);
+        setSaveStatus("saved");
+      } catch {
+        setSaveStatus("pending");
+      }
+    }, 2000);
+    return () => clearTimeout(autoSaveTimerRef.current);
+  }, [tiers, unranked, name, dirty]);
   const [newTierLabel, setNewTierLabel] = useState("");
   const [newTierColor, setNewTierColor] = useState("#60a5fa");
   const [newEntry, setNewEntry]   = useState("");
@@ -3259,8 +3279,12 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
   };
 
   const handleSave = async () => {
-    setSaving(true);
-    try { await onSave(tiers, unranked, name, mode === "custom"); setDirty(false); }
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    setSaving(true); setSaveStatus("saving");
+    try {
+      await onSave(tiers, unranked, name, mode === "custom");
+      setDirty(false); setSaveStatus("saved");
+    } catch { setSaveStatus("pending"); }
     finally { setSaving(false); }
   };
 
@@ -3308,10 +3332,15 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
             </button>
           )}
           {isOwner && (
-            <button onClick={handleSave} disabled={saving || !dirty}
-              style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "7px 18px", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6, opacity: (dirty && !saving) ? 1 : 0.4 }}>
-              {saving ? "Saving..." : "Save"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {saveStatus === "pending" && <span style={{ fontSize: 11, color: "#f59e0b" }}>Unsaved changes...</span>}
+              {saveStatus === "saving" && <span style={{ fontSize: 11, color: "#60a5fa" }}>Saving...</span>}
+              {saveStatus === "saved" && !dirty && <span style={{ fontSize: 11, color: "#34d399" }}>✓ Saved</span>}
+              <button onClick={handleSave} disabled={saving || !dirty}
+                style={{ background: "#3b82f6", border: "none", color: "#fff", padding: "7px 18px", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: F, borderRadius: 6, opacity: (dirty && !saving) ? 1 : 0.4 }}>
+                {saving ? "Saving..." : "Save Now"}
+              </button>
+            </div>
           )}
         </div>
       </div>
