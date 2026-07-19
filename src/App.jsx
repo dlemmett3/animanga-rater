@@ -3078,6 +3078,7 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
   const [dragOver, setDragOver]   = useState(null);
   const [selectedEntries, setSelectedEntries] = useState(new Set());
   const [showTierPicker, setShowTierPicker] = useState(false);
+  const [groupBySeries, setGroupBySeries] = useState(false);
   const autoScrollRef = React.useRef(null);
   const autoSaveTimerRef = React.useRef(null);
   const [saveStatus, setSaveStatus] = useState("saved"); // "saved" | "pending" | "saving"
@@ -3174,6 +3175,8 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
   const handleDrop = (toTierId, toIndex) => {
     if (!dragging) return;
     const { item, fromTier } = dragging;
+    const entryMeta = template?.entry_meta || {};
+    const itemSource = entryMeta[item]?.source;
 
     setTiers(prev => {
       const next = prev.map(t => ({ ...t, items: [...(t.items || [])] }));
@@ -3186,11 +3189,35 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
       }
       // Add to destination
       if (toTierId === "__unranked__") {
-        setUnranked(u => { const nu = u.filter(i => i !== item); nu.splice(toIndex, 0, item); return nu; });
+        setUnranked(u => {
+          const nu = u.filter(i => i !== item);
+          if (groupBySeries && itemSource) {
+            // Find last item with same source and insert after it
+            let insertIdx = nu.length;
+            for (let i = nu.length - 1; i >= 0; i--) {
+              if (entryMeta[nu[i]]?.source === itemSource) { insertIdx = i + 1; break; }
+            }
+            nu.splice(insertIdx, 0, item);
+          } else {
+            nu.splice(toIndex, 0, item);
+          }
+          return nu;
+        });
         return next;
       }
       const dst = next.find(t => t.id === toTierId);
-      if (dst) { dst.items = dst.items.filter(i => i !== item); dst.items.splice(toIndex, 0, item); }
+      if (dst) {
+        dst.items = dst.items.filter(i => i !== item);
+        if (groupBySeries && itemSource) {
+          let insertIdx = dst.items.length;
+          for (let i = dst.items.length - 1; i >= 0; i--) {
+            if (entryMeta[dst.items[i]]?.source === itemSource) { insertIdx = i + 1; break; }
+          }
+          dst.items.splice(insertIdx, 0, item);
+        } else {
+          dst.items.splice(toIndex, 0, item);
+        }
+      }
       return next;
     });
     setDragging(null); setDragOver(null); mark();
@@ -3199,10 +3226,24 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
   const handleDropUnranked = (toIndex) => {
     if (!dragging) return;
     const { item, fromTier } = dragging;
+    const entryMeta = template?.entry_meta || {};
+    const itemSource = entryMeta[item]?.source;
     if (fromTier !== "__unranked__") {
       setTiers(prev => prev.map(t => t.id === fromTier ? { ...t, items: (t.items||[]).filter(i => i !== item) } : t));
     }
-    setUnranked(prev => { const next = prev.filter(i => i !== item); next.splice(toIndex, 0, item); return next; });
+    setUnranked(prev => {
+      const next = prev.filter(i => i !== item);
+      if (groupBySeries && itemSource) {
+        let insertIdx = next.length;
+        for (let i = next.length - 1; i >= 0; i--) {
+          if (entryMeta[next[i]]?.source === itemSource) { insertIdx = i + 1; break; }
+        }
+        next.splice(insertIdx, 0, item);
+      } else {
+        next.splice(toIndex, 0, item);
+      }
+      return next;
+    });
     setDragging(null); setDragOver(null); mark();
   };
 
@@ -3249,6 +3290,25 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
     setTiers(prev => prev.map(t => ({ ...t, items: (t.items||[]).filter(i => !selectedEntries.has(i)) })));
     setSelectedEntries(new Set());
     mark();
+  };
+
+  // Sort items by series source grouping
+  const groupItems = (items) => {
+    if (!groupBySeries || !template) return items;
+    const entryMeta = template.entry_meta || {};
+    // Group by source, preserving order within each source
+    const groups = {};
+    const noSource = [];
+    for (const item of items) {
+      const src = entryMeta[item]?.source;
+      if (src) {
+        if (!groups[src]) groups[src] = [];
+        groups[src].push(item);
+      } else {
+        noSource.push(item);
+      }
+    }
+    return [...Object.values(groups).flat(), ...noSource];
   };
 
   const moveTierUp = (i) => {
@@ -3339,6 +3399,33 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
               Reset to Unranked
             </button>
           )}
+          <button onClick={() => {
+              const newVal = !groupBySeries;
+              setGroupBySeries(newVal);
+              if (newVal && template) {
+                // Immediately reorder all items by series
+                const entryMeta = template.entry_meta || {};
+                const sortBySource = (items) => {
+                  const groups = {};
+                  const noSource = [];
+                  for (const item of items) {
+                    const src = entryMeta[item]?.source;
+                    if (src) { if (!groups[src]) groups[src] = []; groups[src].push(item); }
+                    else noSource.push(item);
+                  }
+                  return [...Object.values(groups).flat(), ...noSource];
+                };
+                setTiers(prev => prev.map(t => ({ ...t, items: sortBySource(t.items || []) })));
+                setUnranked(prev => sortBySource(prev));
+                mark();
+              }
+            }}
+            style={{ background: groupBySeries ? "#1e3a5f" : "none",
+              border: `1px solid ${groupBySeries ? "#3b82f6" : "#1e2d3d"}`,
+              color: groupBySeries ? "#60a5fa" : "#94a3b8",
+              padding: "7px 14px", cursor: "pointer", fontSize: 12, fontFamily: F, borderRadius: 6 }}>
+            {groupBySeries ? "⊞ Grouped" : "⊟ Group by Series"}
+          </button>
           {isOwner && version && (
             <button onClick={() => {
                 if (window.confirm(`Delete "${name}"? This cannot be undone.`)) onDelete();
@@ -3405,7 +3492,7 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
 
                 {/* Items */}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "6px 8px", flex: 1, alignContent: "flex-start", minHeight: 52, background: `${tier.color}08` }}>
-                  {(tier.items || []).map((item, idx) => (
+                  {groupItems(tier.items || []).map((item, idx) => (
                     <EntryChip key={`${item}-${idx}`}
                       item={item}
                       template={template}
@@ -3498,7 +3585,7 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4, minHeight: 52, padding: 10, background: "#0b1118", border: "1px solid #1e2d3d", borderRadius: 6 }}
               onDragOver={e => { e.preventDefault(); setDragOver({ tierId: "__unranked__", index: unranked.length }); }}
               onDrop={() => handleDropUnranked(unranked.length)}>
-              {unranked.map((item, idx) => (
+              {groupItems(unranked).map((item, idx) => (
                 <EntryChip key={`${item}-${idx}`}
                   item={item}
                   template={template}
