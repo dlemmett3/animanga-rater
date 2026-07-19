@@ -3596,7 +3596,15 @@ function EntrySourceMapper({ entries, entryMeta, sourceColors, onUpdate }) {
           {sources.map(src => (
             <div key={src} style={{ display: "flex", alignItems: "center", gap: 6, background: "#0b1118",
               border: `1px solid ${sourceColors[src]}`, borderRadius: 20, padding: "3px 10px" }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: sourceColors[src], flexShrink: 0 }} />
+              <label title={`Click to change color for ${src}`} style={{ display: "flex", alignItems: "center", cursor: "pointer", position: "relative" }}>
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: sourceColors[src], flexShrink: 0, marginRight: 2, border: "1px solid rgba(255,255,255,0.2)" }} />
+                <input type="color" value={sourceColors[src]}
+                  onChange={e => {
+                    const newColors = { ...sourceColors, [src]: e.target.value };
+                    onUpdate(entryMeta, newColors);
+                  }}
+                  style={{ position: "absolute", width: "100%", height: "100%", opacity: 0, cursor: "pointer", left: 0, top: 0, border: "none", padding: 0 }} />
+              </label>
               <span style={{ fontSize: 12, color: sourceColors[src] }}>{src}</span>
               <span onClick={() => removeSource(src)} style={{ fontSize: 11, color: "#475569", cursor: "pointer" }}>×</span>
             </div>
