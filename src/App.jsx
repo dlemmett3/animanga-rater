@@ -3058,6 +3058,21 @@ function TierListEditor({ mode, template, version, myUserId, myUsername, allVers
   const [tiers, setTiers]         = useState(initTiers);
   const [unranked, setUnranked]   = useState(initUnranked);
   const [dirty, setDirty]         = useState(false);
+
+  // Re-sync when template entries change (e.g. after adding a character)
+  useEffect(() => {
+    if (!template) return;
+    setTiers(prev => {
+      const placed = new Set([
+        ...unranked,
+        ...prev.flatMap(t => t.items || []),
+      ]);
+      const missing = (template.entries || []).filter(e => !placed.has(e));
+      if (missing.length === 0) return prev;
+      setUnranked(u => [...u, ...missing]);
+      return prev;
+    });
+  }, [template?.entries?.length]);
   const [saving, setSaving]       = useState(false);
   const [dragging, setDragging]   = useState(null);
   const [dragOver, setDragOver]   = useState(null);
